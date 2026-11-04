@@ -14,7 +14,7 @@ from companion.desktop.character import CharacterWindow
 from companion.desktop.instance import InstanceServer, signal_running_instance
 from companion.desktop.mainwindow import MainWindow
 from companion.desktop.settings import DesktopSettings
-from companion.desktop.sprites import FrameMap
+from companion.desktop.sprites import load_frame_map
 from companion.desktop.worker import Worker
 
 GAP = 6
@@ -43,7 +43,7 @@ class DesktopApp(QObject):
         super().__init__()
         self.settings = settings
         self.worker = worker
-        self.character = CharacterWindow(FrameMap.load(), settings.size)
+        self.character = CharacterWindow(load_frame_map(), settings.size)
         self.chatbox = ChatBox(settings.size)
         self.balloon = SpeechBalloon()
         self.main_window = MainWindow()

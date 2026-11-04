@@ -33,4 +33,5 @@ Mochi as a floating, transparent figure on the desktop (PySide6). It shares Memo
 - Click Mochi for the Chat Box (Esc or click again to close); double-click for the Main Window (Conversation, Memories). Right-click: Hide, Quit.
 - Running `mochi-desktop` again toggles visibility, so bind it to a GNOME shortcut or a `.desktop` launcher.
 - Position and size live in `~/.config/mochi-companion/desktop.json` (`size`, default 128).
+- Local art: put a sheet and a `frames.json` in `~/.config/mochi-companion/sprites/` and it replaces the placeholder (cells are `[column, row]` on the sheet). Use this for art whose licence forbids redistribution, e.g. the Rosa portraits (not committed).
 - Art: `companion/desktop/sprites/frames.json` maps each state to a row of the spritesheet. Swap in final art by editing the map; `scripts/make_placeholder_sprites.py` regenerates the placeholder.

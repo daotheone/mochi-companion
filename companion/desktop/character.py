@@ -53,7 +53,7 @@ class CharacterWindow(QWidget):
         self._update_frame()
 
     def _advance(self) -> None:
-        self._frame = (self._frame + 1) % self._map.state(self._state).frames
+        self._frame = (self._frame + 1) % len(self._map.state(self._state).cells)
         self._update_frame()
 
     def _current(self) -> QPixmap:
@@ -61,7 +61,8 @@ class CharacterWindow(QWidget):
         if key not in self._cache:
             w, h = self._map.frame_size
             spec = self._map.state(self._state)
-            frame = self._sheet.copy(self._frame * w, spec.row * h, w, h)
+            col, row = spec.cells[self._frame]
+            frame = self._sheet.copy(col * w, row * h, w, h)
             self._cache[key] = frame.scaled(
                 self.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
             )
