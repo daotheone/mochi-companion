@@ -44,7 +44,7 @@ class DesktopApp(QObject):
         self.settings = settings
         self.worker = worker
         self.character = CharacterWindow(FrameMap.load(), settings.size)
-        self.chatbox = ChatBox()
+        self.chatbox = ChatBox(settings.size)
         self.balloon = SpeechBalloon()
         self.main_window = MainWindow()
         self._busy = False
@@ -181,7 +181,7 @@ class DesktopApp(QObject):
 
 def main() -> None:
     # ADR 0001: native Wayland cannot place or raise windows, so run through XWayland.
-    os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
+    os.environ["QT_QPA_PLATFORM"] = "xcb"
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("mochi-desktop")

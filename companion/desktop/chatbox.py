@@ -8,12 +8,12 @@ class ChatBox(QWidget):
     submitted = Signal(str)
     closed = Signal()
 
-    def __init__(self):
+    def __init__(self, width: int):
         super().__init__()
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool
         )
-        self.setFixedWidth(280)
+        self.setFixedWidth(width)
         self._input = QLineEdit(self)
         self._input.setPlaceholderText("Nói với Mochi…")
         self._input.setStyleSheet(

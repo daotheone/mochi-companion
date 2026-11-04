@@ -4,6 +4,7 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLay
 from companion.store import Memory
 
 WIDTH = 260
+BORDER = 2  # the card's stylesheet border; it shrinks the area the layout sees
 BUBBLE_DELAY_MS = 700
 FADE_AFTER_MS = 30_000
 FADE_MS = 1_000
@@ -65,6 +66,7 @@ class SpeechBalloon(QWidget):
         self._add_label(message)
         row = QHBoxLayout()
         retry = QPushButton("Retry")
+        retry.show()
         retry.clicked.connect(self.retry_requested.emit)
         retry.clicked.connect(self.hide)
         row.addWidget(retry)
@@ -95,6 +97,12 @@ class SpeechBalloon(QWidget):
         label = QLabel(text, wordWrap=True, objectName=name)
         label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self._stack.addWidget(label)
+        # Size by hand: a layout's height-for-width pass comes up short and the lines overlap.
+        label.ensurePolished()
+        m = self._stack.contentsMargins()
+        label.setFixedWidth(WIDTH - 2 * BORDER - m.left() - m.right())
+        label.setFixedHeight(label.heightForWidth(label.width()))
+        label.show()  # a layout ignores hidden widgets, and a new child stays hidden until the next event-loop turn
 
     def _reveal_next(self) -> None:
         if self._pending:
@@ -113,6 +121,7 @@ class SpeechBalloon(QWidget):
         row = QHBoxLayout()
         for caption, signal in (("Confirm", self.confirm_requested), ("Forget", self.forget_requested)):
             button = QPushButton(caption)
+            button.show()
             button.clicked.connect(lambda _=False, s=signal: s.emit(memory.id))
             button.clicked.connect(lambda _=False: self._drop_noticed())
             row.addWidget(button)
@@ -132,7 +141,8 @@ class SpeechBalloon(QWidget):
         self._shown()
 
     def _shown(self) -> None:
-        self.adjustSize()
+        self._stack.invalidate()
+        self.setFixedHeight(self._stack.sizeHint().height() + 2 * BORDER)
         if not self.isVisible():
             self.show()
         self.resized.emit()

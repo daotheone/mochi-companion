@@ -90,3 +90,17 @@ def test_hide_and_toggle_visibility(ui):
     assert not ui.character.isVisible()
     ui.toggle_visibility()
     assert ui.character.isVisible()
+
+
+def test_wrapped_bubbles_do_not_overlap(ui):
+    from PySide6.QtWidgets import QLabel
+    ui.balloon.show_reply(["dài " * 40, "dài " * 40], None)
+    QTest.qWait(50)
+    labels = sorted(ui.balloon.findChildren(QLabel), key=lambda l: l.y())
+    assert len(labels) == 2
+    assert labels[0].y() + labels[0].height() <= labels[1].y()
+    assert labels[1].y() + labels[1].height() <= ui.balloon.height()
+
+
+def test_chat_box_is_as_wide_as_the_sprite(ui):
+    assert ui.chatbox.width() == ui.character.width()
