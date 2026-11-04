@@ -5,6 +5,7 @@ from pathlib import Path
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS conversations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    interface TEXT NOT NULL DEFAULT 'terminal',
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
 );
 CREATE TABLE IF NOT EXISTS messages (
@@ -46,17 +47,24 @@ class Store:
             Path(path).parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(path)
         self._db.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        columns = {row[1] for row in self._db.execute("PRAGMA table_info(conversations)")}
+        if "interface" not in columns:
+            with self._db:
+                self._db.execute("ALTER TABLE conversations ADD COLUMN interface TEXT NOT NULL DEFAULT 'terminal'")
 
     def close(self) -> None:
         self._db.close()
 
-    def latest_conversation(self) -> int | None:
-        row = self._db.execute("SELECT MAX(id) FROM conversations").fetchone()
+    def latest_conversation(self, interface: str) -> int | None:
+        row = self._db.execute("SELECT MAX(id) FROM conversations WHERE interface = ?", (interface,)).fetchone()
         return row[0]
 
-    def new_conversation(self) -> int:
+    def new_conversation(self, interface: str) -> int:
         with self._db:
-            return self._db.execute("INSERT INTO conversations DEFAULT VALUES").lastrowid
+            return self._db.execute("INSERT INTO conversations (interface) VALUES (?)", (interface,)).lastrowid
 
     def add_message(self, conversation_id: int, role: str, content: str) -> int:
         with self._db:

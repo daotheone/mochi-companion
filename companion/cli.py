@@ -1,9 +1,5 @@
-import sys
-
+from companion.app import bubbles as split_bubbles, build_companion
 from companion.companion import Companion, UnknownMemory
-from companion.config import Config
-from companion.deepseek_provider import DeepSeekProvider
-from companion.persona import persona_warning
 from companion.provider import ProviderError
 from companion.store import Memory, Store
 
@@ -23,7 +19,7 @@ USAGE = {
 
 
 def bubbles(speaker: str, text: str) -> list[str]:
-    return [f"{speaker}: {line}" for line in text.splitlines() if line.strip()]
+    return [f"{speaker}: {line}" for line in split_bubbles(text)]
 
 
 def format_memory(m: Memory) -> str:
@@ -132,18 +128,7 @@ def run(companion: Companion, input_fn=input, print_fn=print) -> None:
 
 
 def main() -> None:
-    config = Config.load()
-    if not config.persona_path.is_file():
-        sys.exit(f"Persona file not found: {config.persona_path}")
-    persona = config.persona_path.read_text()
-    if warning := persona_warning(persona):
-        print(f"[warning] {warning}", file=sys.stderr)
-    store = Store(config.db_path)
-    provider = DeepSeekProvider(config.api_key, config.model, log_usage=True)
-    companion = Companion(
-        store, provider, persona, config.history_limit,
-        config.memory_limit,
-    )
+    companion, store = build_companion("terminal", resume=True)
     try:
         run(companion)
     finally:

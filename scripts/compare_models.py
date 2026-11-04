@@ -30,7 +30,7 @@ def run_case(case: dict, persona: str, api_key: str | None, model: str) -> str:
             companion.store.add_memory(memory["text"], memory.get("tags", []), memory.get("kind", "stated"))
         *earlier, last = [m if isinstance(m, dict) else {"role": "user", "content": m} for m in case["messages"]]
         for turn in earlier:
-            companion.store.add_message(companion.conversation_id, turn["role"], turn["content"])
+            companion.store.add_message(companion.ensure_conversation(), turn["role"], turn["content"])
         reply = companion.send(last["content"])
         proposal = f"\n[saved Observed: {companion.last_proposal.text}]" if companion.last_proposal else ""
         return reply + proposal

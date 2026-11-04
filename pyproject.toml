@@ -5,8 +5,12 @@ description = "A personal AI companion that lives on the desktop."
 requires-python = ">=3.14"
 dependencies = ["openai>=1.0"]
 
+[project.optional-dependencies]
+desktop = ["PySide6-Essentials>=6.7"]
+
 [project.scripts]
 mochi = "companion.cli:main"
+mochi-desktop = "companion.desktop.app:main"
 
 [dependency-groups]
 dev = ["pytest>=8"]

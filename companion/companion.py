@@ -24,6 +24,8 @@ class Companion:
         history_limit: int = 20,
         memory_limit: int = DEFAULT_MEMORY_LIMIT,
         memory_budget: int = MEMORY_BUDGET_CHARS,
+        interface: str = "terminal",
+        resume: bool = True,
     ):
         self.store = store
         self.provider = provider
@@ -31,16 +33,28 @@ class Companion:
         self.history_limit = history_limit
         self.memory_limit = memory_limit
         self.memory_budget = memory_budget
-        self.conversation_id = store.latest_conversation() or store.new_conversation()
+        self.interface = interface
+        # A Conversation is only created by the first Message, so there are no empty ones.
+        self.conversation_id: int | None = store.latest_conversation(interface) if resume else None
         self.last_proposal: Memory | None = None
 
     def recent_messages(self, limit: int | None = None) -> list[StoredMessage]:
+        if self.conversation_id is None:
+            return []
         return self.store.recent_messages(self.conversation_id, self.history_limit if limit is None else limit)
 
     def new_conversation(self) -> None:
-        self.conversation_id = self.store.new_conversation()
+        """Leave the current Conversation; the next Message starts a fresh one."""
+        self.conversation_id = None
+
+    def ensure_conversation(self) -> int:
+        if self.conversation_id is None:
+            self.conversation_id = self.store.new_conversation(self.interface)
+        return self.conversation_id
 
     def has_unanswered_message(self) -> bool:
+        if self.conversation_id is None:
+            return False
         last = self.store.recent_messages(self.conversation_id, 1)
         return bool(last) and last[0].role == "user"
 
@@ -88,7 +102,7 @@ class Companion:
 
     def send(self, text: str) -> str:
         """Save the user's Message at once, then ask the provider. Raises ProviderError."""
-        self.store.add_message(self.conversation_id, "user", text)
+        self.store.add_message(self.ensure_conversation(), "user", text)
         return self._reply()
 
     def retry(self) -> str:
@@ -104,7 +118,7 @@ class Companion:
         if not reply:
             raise ProviderError("Mochi's reply was empty.")
         self.last_proposal = self._save_observation(proposal)
-        self.store.add_message(self.conversation_id, "assistant", reply)
+        self.store.add_message(self.ensure_conversation(), "assistant", reply)
         return reply
 
 

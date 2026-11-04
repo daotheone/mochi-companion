@@ -244,3 +244,53 @@ def test_common_words_do_not_count_as_keyword_matches(db):
     c.remember("studies best at night", ["study"])
     c.send("he said the")
     assert system_sent(provider) == "PERSONA"
+
+
+def test_conversation_is_created_on_the_first_message_not_at_launch(db):
+    c = launch(db, FakeProvider())
+    assert c.store.latest_conversation("terminal") is None
+    c.send("hi")
+    assert c.store.latest_conversation("terminal") == c.conversation_id
+
+
+def test_each_interface_resumes_only_its_own_latest_conversation(db):
+    terminal = Companion(Store(db), FakeProvider(), "P", interface="terminal")
+    terminal.send("from terminal")
+    character = Companion(Store(db), FakeProvider(), "P", interface="character", resume=False)
+    assert character.recent_messages() == []
+    character.send("from character")
+
+    again = Companion(Store(db), FakeProvider(), "P", interface="terminal")
+    assert [m.content for m in again.recent_messages()] == ["from terminal", "ok"]
+
+
+def test_character_starts_a_new_conversation_each_launch_without_empty_ones(db):
+    first = Companion(Store(db), FakeProvider(), "P", interface="character", resume=False)
+    first.send("one")
+    Companion(Store(db), FakeProvider(), "P", interface="character", resume=False)  # never sends
+    second = Companion(Store(db), FakeProvider(), "P", interface="character", resume=False)
+    second.send("two")
+    assert second.conversation_id != first.conversation_id
+    count = second.store._db.execute("SELECT COUNT(*) FROM conversations").fetchone()[0]
+    assert count == 2
+
+
+def test_memories_are_shared_between_interfaces(db):
+    Companion(Store(db), FakeProvider(), "P", interface="terminal").remember("likes tea")
+    provider = FakeProvider()
+    Companion(Store(db), provider, "P", interface="character", resume=False).send("hi")
+    assert "likes tea" in provider.calls[0][0]
+
+
+def test_existing_database_without_interface_column_is_migrated(tmp_path):
+    import sqlite3
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.executescript(
+        "CREATE TABLE conversations (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL DEFAULT 'x');"
+        "INSERT INTO conversations DEFAULT VALUES;"
+    )
+    old.commit()
+    old.close()
+    assert Store(path).latest_conversation("terminal") == 1
+    assert Store(path).latest_conversation("character") is None
