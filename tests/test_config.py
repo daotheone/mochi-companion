@@ -5,7 +5,7 @@ from companion.config import Config
 
 def test_defaults():
     c = Config.load({})
-    assert c.model == "qwen/qwen3.8-27b" and c.history_limit == 20 and c.api_key is None
+    assert c.model == "deepseek-flash" and c.history_limit == 20 and c.api_key is None
 
 
 @pytest.mark.parametrize("bad", ["0", "-3", "abc"])

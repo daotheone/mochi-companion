@@ -1,4 +1,4 @@
-"""Run the same prompts and Memories through several Groq models and write a side-by-side Markdown report.
+"""Run the same prompts and Memories through several models and write a side-by-side Markdown report.
 
     python scripts/compare_models.py [--models a,b] [--out docs/model-comparison.md]
 
@@ -16,15 +16,15 @@ sys.path.insert(0, str(ROOT))
 
 from companion.companion import Companion
 from companion.config import PROJECT_ROOT, load_dotenv
-from companion.groq_provider import GroqProvider
+from companion.deepseek_provider import DeepSeekProvider
 from companion.provider import ProviderError
 from companion.store import Store
 
-DEFAULT_MODELS = "qwen/qwen3.8-27b,openai/gpt-oss-20b"
+DEFAULT_MODELS = "deepseek-flash"
 
 
 def run_case(case: dict, persona: str, api_key: str | None, model: str) -> str:
-    companion = Companion(Store(":memory:"), GroqProvider(api_key, model), persona)
+    companion = Companion(Store(":memory:"), DeepSeekProvider(api_key, model), persona)
     try:
         for memory in case.get("memories", []):
             companion.store.add_memory(memory["text"], memory.get("tags", []), memory.get("kind", "stated"))
@@ -49,7 +49,7 @@ def main() -> None:
     args = parser.parse_args()
 
     load_dotenv(PROJECT_ROOT / ".env", os.environ)
-    api_key = os.environ.get("GROQ_API_KEY")
+    api_key = os.environ.get("DEEPSEEK_API_KEY")
     models = args.models.split(",")
     persona = Path(args.persona).read_text()
     cases = json.loads(Path(args.prompts).read_text())

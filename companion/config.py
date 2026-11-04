@@ -2,7 +2,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-DEFAULT_MODEL = "qwen/qwen3.8-27b"
+DEFAULT_MODEL = "deepseek-flash"
 DEFAULT_HISTORY_LIMIT = 20
 DEFAULT_MEMORY_LIMIT = 5
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -49,7 +49,7 @@ class Config:
             environ.get("MOCHI_DATA_DIR", Path.home() / ".local/share/mochi-companion")
         )
         return cls(
-            api_key=environ.get("GROQ_API_KEY") or None,
+            api_key=environ.get("DEEPSEEK_API_KEY") or None,
             model=environ.get("MOCHI_MODEL", DEFAULT_MODEL),
             history_limit=_positive_int(environ, "MOCHI_HISTORY_LIMIT", DEFAULT_HISTORY_LIMIT),
             memory_limit=_positive_int(environ, "MOCHI_MEMORY_LIMIT", DEFAULT_MEMORY_LIMIT),

@@ -3,7 +3,7 @@ name = "mochi-companion"
 version = "0.1.0"
 description = "A personal AI companion that lives on the desktop."
 requires-python = ">=3.14"
-dependencies = ["groq>=1.0"]
+dependencies = ["openai>=1.0"]
 
 [project.scripts]
 mochi = "companion.cli:main"

@@ -197,5 +197,17 @@
     "content": "e nhớ gì về a nhỉ? a thích ăn gì, học lúc nào?"
    }
   ]
+ },
+ {
+  "id": "joke-hurt",
+  "note": "a joke landed badly: stop teasing, own it, answer what a said",
+  "messages": [
+   "mất cả tối mà vẽ ra cái này á =))",
+   {
+    "role": "assistant",
+    "content": "?\nđ vui"
+   },
+   "ừ, câu đó làm a hơi đau đấy"
+  ]
  }
 ]

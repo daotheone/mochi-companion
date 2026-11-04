@@ -8,9 +8,9 @@ Chat with Mochi in the terminal; the Conversation survives restarts.
 ### Setup
 - Linux, Python 3.14 (developed on GNOME/Wayland).
 - With [uv](https://docs.astral.sh/uv/): `uv sync`. Without: `python3.14 -m venv .venv && .venv/bin/pip install -e . pytest`.
-- Get a Groq API key and put it in the environment or an uncommitted `.env` in the repo root:
-  `GROQ_API_KEY=...`
-- Optional settings: `MOCHI_MODEL` (default `qwen/qwen3.8-27b`), `MOCHI_HISTORY_LIMIT` (default `20`), `MOCHI_DATA_DIR`, `MOCHI_PERSONA`.
+- Get a DeepSeek API key and put it in the environment or an uncommitted `.env` in the repo root:
+  `DEEPSEEK_API_KEY=...`
+- Optional settings: `MOCHI_MODEL` (default `deepseek-flash`), `MOCHI_HISTORY_LIMIT` (default `20`), `MOCHI_DATA_DIR`, `MOCHI_PERSONA`.
 
 ### Launch
 `uv run mochi` (or `.venv/bin/mochi`, or `python -m companion.cli`)
@@ -22,4 +22,4 @@ History lives in SQLite at `~/.local/share/mochi-companion/mochi.db`. Edit Mochi
 `uv run pytest` (uses a fake provider; no API requests).
 
 ### Privacy
-The most recent Messages (default 20) and the Persona are sent to Groq, a hosted provider, on every request.
+The most recent Messages (default 20) and the Persona are sent to DeepSeek, a hosted provider, on every request.
