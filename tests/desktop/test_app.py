@@ -104,3 +104,12 @@ def test_wrapped_bubbles_do_not_overlap(ui):
 
 def test_chat_box_is_as_wide_as_the_sprite(ui):
     assert ui.chatbox.width() == ui.character.width()
+
+
+def test_character_mirrors_on_the_far_side_of_the_screen(ui):
+    ui.character.move(0, 100)
+    ui._face_screen_centre()
+    assert ui.character._facing == "right"
+    ui.character.move(ui.character.screen().geometry().width() - 130, 100)
+    ui._face_screen_centre()
+    assert ui.character._facing == "left"

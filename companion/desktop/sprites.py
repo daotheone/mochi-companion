@@ -3,7 +3,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-STATES = ("idle", "thinking", "replying")
+STATES = ("idle", "thinking")
 BUNDLED = Path(__file__).parent / "sprites" / "frames.json"
 
 
@@ -33,6 +33,7 @@ class FrameMap:
     sheet: Path
     frame_size: tuple[int, int]
     states: dict[str, StateFrames]
+    faces: str = "right"  # which way the art looks; it is mirrored when that points off-screen
 
     def state(self, name: str) -> StateFrames:
         return self.states[name]
@@ -50,7 +51,10 @@ class FrameMap:
         for name in STATES:
             if name not in states:
                 raise SpriteError(f"Sprite frame-map {path} has no '{name}' state.")
-        return cls(sheet, (width, height), states)
+        faces = data.get("faces", "right")
+        if faces not in ("left", "right"):
+            raise SpriteError(f"Sprite frame-map {path}: 'faces' must be 'left' or 'right'.")
+        return cls(sheet, (width, height), states, faces)
 
 
 def user_map_path() -> Path:

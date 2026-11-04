@@ -1,9 +1,19 @@
 {
   "sheet": "placeholder.png",
-  "frame_size": [128, 128],
+  "frame_size": [
+    128,
+    128
+  ],
   "states": {
-    "idle": {"row": 0, "frames": 4, "fps": 3},
-    "thinking": {"row": 1, "frames": 4, "fps": 6},
-    "replying": {"row": 2, "frames": 4, "fps": 8}
+    "idle": {
+      "row": 0,
+      "frames": 4,
+      "fps": 3
+    },
+    "thinking": {
+      "row": 1,
+      "frames": 4,
+      "fps": 6
+    }
   }
 }

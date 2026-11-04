@@ -28,3 +28,10 @@ def test_save_position_records_monitor_name_and_offset():
 def test_balloon_opens_right_unless_it_would_leave_the_screen():
     assert balloon_side(100, SIZE, 260, LEFT) == "right"
     assert balloon_side(1700, SIZE, 260, LEFT) == "left"
+
+
+def test_character_looks_towards_the_middle_of_the_screen():
+    from companion.desktop.placement import facing
+    assert facing(100, SIZE, LEFT) == "right"
+    assert facing(1700, SIZE, LEFT) == "left"
+    assert facing(1920 + 1700, SIZE, RIGHT) == "left"

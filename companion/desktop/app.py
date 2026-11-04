@@ -77,11 +77,11 @@ class DesktopApp(QObject):
         # character interaction
         c.clicked.connect(self.toggle_chatbox)
         c.double_clicked.connect(self.open_main_window)
+        c.moving.connect(self._face_screen_centre)
         c.moved_by_user.connect(self._on_moved)
         c.hide_requested.connect(self.hide_character)
         c.quit_requested.connect(QApplication.quit)
         self.chatbox.closed.connect(lambda: b.set_pinned(False))
-        b.finished.connect(self._on_balloon_finished)
         b.resized.connect(self._place_balloon)
 
     # --- state ---
@@ -101,11 +101,8 @@ class DesktopApp(QObject):
 
     def _on_reply(self, bubbles: list, noticed) -> None:
         self._set_busy(False)
-        self.character.set_state("replying")
-        self.balloon.show_reply(bubbles, noticed)
-
-    def _on_balloon_finished(self) -> None:
         self.character.set_state("idle")
+        self.balloon.show_reply(bubbles, noticed)
 
     def _on_failure(self, message: str) -> None:
         self.balloon.show_error(message)
@@ -120,6 +117,11 @@ class DesktopApp(QObject):
         screens, primary = _screens()
         x, y = placement.place(self.settings.position, screens, primary, self.settings.size)
         self.character.move(x, y)
+        self._face_screen_centre()
+
+    def _face_screen_centre(self) -> None:
+        screen, geo = self._current_screen(), self.character.geometry()
+        self.character.set_facing(placement.facing(geo.x(), geo.width(), screen))
 
     def _on_moved(self) -> None:
         screens, _ = _screens()

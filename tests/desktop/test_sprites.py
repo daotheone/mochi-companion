@@ -20,8 +20,8 @@ def test_loads_every_state(tmp_path):
 
 
 def test_missing_state_is_a_readable_error(tmp_path):
-    with pytest.raises(SpriteError, match="replying"):
-        FrameMap.load(write(tmp_path, {"idle": {"row": 0, "frames": 1, "fps": 1}, "thinking": {"row": 1, "frames": 1, "fps": 1}}))
+    with pytest.raises(SpriteError, match="thinking"):
+        FrameMap.load(write(tmp_path, {"idle": {"row": 0, "frames": 1, "fps": 1}}))
 
 
 def test_bundled_placeholder_map_is_valid():

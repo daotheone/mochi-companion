@@ -46,6 +46,11 @@ def save_position(x: int, y: int, size: int, screens: list[Screen]) -> SavedPosi
     return None if screen is None else SavedPosition(screen.name, x - screen.x, y - screen.y)
 
 
+def facing(x: int, size: int, screen: Screen) -> str:
+    """Look towards the middle of the screen: left from the right half, right from the left half."""
+    return "left" if x + size // 2 > screen.x + screen.width // 2 else "right"
+
+
 def balloon_side(x: int, size: int, balloon_width: int, screen: Screen) -> str:
     """Open beside the Character on whichever side has room, preferring the right."""
     return "right" if x + size + balloon_width <= screen.x + screen.width else "left"

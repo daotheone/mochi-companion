@@ -1,5 +1,5 @@
 from PySide6.QtCore import QPoint, QTimer, Qt, Signal
-from PySide6.QtGui import QMouseEvent, QPainter, QPixmap
+from PySide6.QtGui import QMouseEvent, QPainter, QPixmap, QTransform
 from PySide6.QtWidgets import QMenu, QWidget
 
 from companion.desktop.sprites import FrameMap
@@ -12,6 +12,7 @@ class CharacterWindow(QWidget):
 
     clicked = Signal()
     double_clicked = Signal()
+    moving = Signal()
     moved_by_user = Signal()
     hide_requested = Signal()
     quit_requested = Signal()
@@ -32,7 +33,8 @@ class CharacterWindow(QWidget):
         self._sheet = QPixmap(str(frame_map.sheet))
         self._state = "idle"
         self._frame = 0
-        self._cache: dict[tuple[str, int], QPixmap] = {}
+        self._facing = "right"
+        self._cache: dict[tuple[str, int, bool], QPixmap] = {}
         self._press: QPoint | None = None
         self._grab_offset = QPoint()
         self._dragging = False
@@ -48,6 +50,12 @@ class CharacterWindow(QWidget):
             self._state, self._frame = state, 0
             self._apply_state()
 
+    def set_facing(self, side: str) -> None:
+        """Which way Mochi looks; the art is mirrored when it natively faces the other way."""
+        if side != self._facing:
+            self._facing = side
+            self._update_frame()
+
     def _apply_state(self) -> None:
         self._timer.start(1000 // max(1, self._map.state(self._state).fps))
         self._update_frame()
@@ -57,12 +65,15 @@ class CharacterWindow(QWidget):
         self._update_frame()
 
     def _current(self) -> QPixmap:
-        key = (self._state, self._frame)
+        mirrored = self._facing != self._map.faces
+        key = (self._state, self._frame, mirrored)
         if key not in self._cache:
             w, h = self._map.frame_size
             spec = self._map.state(self._state)
             col, row = spec.cells[self._frame]
             frame = self._sheet.copy(col * w, row * h, w, h)
+            if mirrored:
+                frame = frame.transformed(QTransform().scale(-1, 1))
             self._cache[key] = frame.scaled(
                 self.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
             )
@@ -90,6 +101,7 @@ class CharacterWindow(QWidget):
             self._dragging = True
         if self._dragging:
             self.move(here - self._grab_offset)
+            self.moving.emit()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() != Qt.MouseButton.LeftButton or self._press is None:
