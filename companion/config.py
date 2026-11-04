@@ -2,7 +2,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-DEFAULT_MODEL = "openai/gpt-oss-20b"
+DEFAULT_MODEL = "qwen/qwen3.8-27b"
 DEFAULT_HISTORY_LIMIT = 20
 DEFAULT_MEMORY_LIMIT = 5
 PROJECT_ROOT = Path(__file__).resolve().parent.parent

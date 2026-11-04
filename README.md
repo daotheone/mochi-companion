@@ -10,7 +10,7 @@ Chat with Mochi in the terminal; the Conversation survives restarts.
 - With [uv](https://docs.astral.sh/uv/): `uv sync`. Without: `python3.14 -m venv .venv && .venv/bin/pip install -e . pytest`.
 - Get a Groq API key and put it in the environment or an uncommitted `.env` in the repo root:
   `GROQ_API_KEY=...`
-- Optional settings: `MOCHI_MODEL` (default `openai/gpt-oss-20b`), `MOCHI_HISTORY_LIMIT` (default `20`), `MOCHI_DATA_DIR`, `MOCHI_PERSONA`.
+- Optional settings: `MOCHI_MODEL` (default `qwen/qwen3.8-27b`), `MOCHI_HISTORY_LIMIT` (default `20`), `MOCHI_DATA_DIR`, `MOCHI_PERSONA`.
 
 ### Launch
 `uv run mochi` (or `.venv/bin/mochi`, or `python -m companion.cli`)
