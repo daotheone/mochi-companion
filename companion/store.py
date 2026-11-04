@@ -15,6 +15,13 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
 );
 CREATE INDEX IF NOT EXISTS messages_by_conversation ON messages(conversation_id, id);
+CREATE TABLE IF NOT EXISTS memories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    text TEXT NOT NULL,
+    tags TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL CHECK (kind IN ('stated', 'observed')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
+);
 """
 
 
@@ -23,6 +30,14 @@ class StoredMessage:
     id: int
     role: str
     content: str
+
+
+@dataclass(frozen=True)
+class Memory:
+    id: int
+    text: str
+    tags: tuple[str, ...]
+    kind: str  # "stated" or "observed"
 
 
 class Store:
@@ -57,3 +72,34 @@ class Store:
             (conversation_id, limit),
         ).fetchall()
         return [StoredMessage(*r) for r in reversed(rows)]
+
+    def add_memory(self, text: str, tags: list[str], kind: str) -> Memory:
+        with self._db:
+            memory_id = self._db.execute(
+                "INSERT INTO memories (text, tags, kind) VALUES (?, ?, ?)",
+                (text, ",".join(tags), kind),
+            ).lastrowid
+        return Memory(memory_id, text, tuple(tags), kind)
+
+    def list_memories(self) -> list[Memory]:
+        rows = self._db.execute("SELECT id, text, tags, kind FROM memories ORDER BY id").fetchall()
+        return [Memory(i, text, tuple(t for t in tags.split(",") if t), kind) for i, text, tags, kind in rows]
+
+    def update_memory(
+        self, memory_id: int, *, text: str | None = None, tags: list[str] | None = None, kind: str | None = None
+    ) -> bool:
+        """Change the given fields; False if there is no such Memory."""
+        fields = {"text": text, "tags": None if tags is None else ",".join(tags), "kind": kind}
+        changes = {k: v for k, v in fields.items() if v is not None}
+        if not changes:
+            return any(m.id == memory_id for m in self.list_memories())
+        assignments = ", ".join(f"{k} = ?" for k in changes)
+        with self._db:
+            cursor = self._db.execute(
+                f"UPDATE memories SET {assignments} WHERE id = ?", (*changes.values(), memory_id)
+            )
+        return cursor.rowcount > 0
+
+    def delete_memory(self, memory_id: int) -> bool:
+        with self._db:
+            return self._db.execute("DELETE FROM memories WHERE id = ?", (memory_id,)).rowcount > 0

@@ -4,6 +4,7 @@ from pathlib import Path
 
 DEFAULT_MODEL = "openai/gpt-oss-20b"
 DEFAULT_HISTORY_LIMIT = 20
+DEFAULT_MEMORY_LIMIT = 5
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -35,6 +36,7 @@ class Config:
     api_key: str | None
     model: str
     history_limit: int
+    memory_limit: int
     db_path: Path
     persona_path: Path
 
@@ -50,6 +52,7 @@ class Config:
             api_key=environ.get("GROQ_API_KEY") or None,
             model=environ.get("MOCHI_MODEL", DEFAULT_MODEL),
             history_limit=_positive_int(environ, "MOCHI_HISTORY_LIMIT", DEFAULT_HISTORY_LIMIT),
+            memory_limit=_positive_int(environ, "MOCHI_MEMORY_LIMIT", DEFAULT_MEMORY_LIMIT),
             db_path=data_dir / "mochi.db",
             persona_path=Path(environ.get("MOCHI_PERSONA", PROJECT_ROOT / "persona/mochi.md")),
         )

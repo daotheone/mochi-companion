@@ -1,6 +1,6 @@
 import pytest
 
-from companion.companion import Companion
+from companion.companion import Companion, UnknownMemory
 from companion.fake_provider import FakeProvider
 from companion.provider import ChatMessage, ProviderError
 from companion.store import Store
@@ -94,3 +94,153 @@ def test_history_limit_zero_is_honoured_not_defaulted(db):
     c = launch(db, FakeProvider())
     c.send("hi")
     assert c.recent_messages(0) == []
+
+
+def test_saved_memory_is_listed_as_stated_and_survives_restart(db):
+    c = launch(db, FakeProvider())
+    saved = c.remember("likes less sugar", ["Food", "diet"])
+    c.store.close()
+
+    (m,) = launch(db, FakeProvider()).memories()
+    assert (m.id, m.text, m.tags, m.kind) == (saved.id, "likes less sugar", ("food", "diet"), "stated")
+
+
+def test_edit_retag_and_forget_are_honored_after_restart(db):
+    c = launch(db, FakeProvider())
+    keep = c.remember("likes tea")
+    gone = c.remember("hates mornings")
+    c.edit(keep.id, "likes green tea")
+    c.set_tags(keep.id, ["#drinks"])
+    c.forget(gone.id)
+    c.store.close()
+
+    (m,) = launch(db, FakeProvider()).memories()
+    assert (m.text, m.tags, m.kind) == ("likes green tea", ("drinks",), "stated")
+
+
+def test_memory_ids_are_never_reused(db):
+    c = launch(db, FakeProvider())
+    first = c.remember("a")
+    c.forget(first.id)
+    assert c.remember("b").id != first.id
+
+
+def test_unknown_memory_id_raises(db):
+    c = launch(db, FakeProvider())
+    for action in (lambda: c.edit(9, "x"), lambda: c.forget(9), lambda: c.set_tags(9, []), lambda: c.confirm(9)):
+        with pytest.raises(UnknownMemory):
+            action()
+
+
+def test_observe_line_is_stripped_and_saved_as_observed(db):
+    reply = "ô tốt\nthấy a làm từng bước ok hơn thì phải?\n[observe: tags=study,habits | starts studying after picking a small first step]"
+    c = launch(db, FakeProvider([reply]))
+    shown = c.send("làm đc 2 câu r")
+
+    assert shown == "ô tốt\nthấy a làm từng bước ok hơn thì phải?"
+    assert c.recent_messages()[-1].content == shown
+    (m,) = c.memories()
+    assert (m.kind, m.tags, m.text) == ("observed", ("study", "habits"), "starts studying after picking a small first step")
+    assert c.last_proposal == m
+
+
+def test_malformed_observe_line_is_dropped_silently(db):
+    c = launch(db, FakeProvider(["ok\n[observe: no separator here]"]))
+    assert c.send("hi") == "ok"
+    assert c.memories() == []
+    assert c.last_proposal is None
+
+
+def test_only_the_first_observe_line_counts_and_duplicates_are_skipped(db):
+    c = launch(db, FakeProvider([
+        "a\n[observe: tags=x | likes tea]\n[observe: tags=y | hates rain]",
+        "b\n[observe:tags=x |  Likes   TEA ]",
+    ]))
+    c.send("one")
+    assert [m.text for m in c.memories()] == ["likes tea"]
+    c.send("two")
+    assert [m.text for m in c.memories()] == ["likes tea"]
+    assert c.last_proposal is None
+
+
+def test_confirming_or_editing_an_observed_memory_makes_it_stated(db):
+    c = launch(db, FakeProvider(["a\n[observe: tags=x | one]", "b\n[observe: tags=x | two]"]))
+    c.send("1")
+    c.send("2")
+    first, second = c.memories()
+    c.confirm(first.id)
+    c.edit(second.id, "two, corrected")
+    assert [(m.kind, m.text) for m in c.memories()] == [("stated", "one"), ("stated", "two, corrected")]
+
+
+def system_sent(provider):
+    return provider.calls[-1][0]
+
+
+def test_all_memories_are_injected_while_they_fit_and_observed_ones_are_hedged(db):
+    provider = FakeProvider(["a\n[observe: tags=study | studies best at night]", "ok"])
+    c = launch(db, provider)
+    c.remember("likes less sugar", ["food"])
+    c.send("hello")
+    c.send("unrelated")
+
+    sent = system_sent(provider)
+    assert sent.startswith("PERSONA")
+    assert "likes less sugar" in sent
+    assert "not yet confirmed" in sent and "studies best at night" in sent
+    assert sent.index("likes less sugar") < sent.index("not yet confirmed")
+
+
+def test_over_budget_memories_are_selected_by_tag_and_keyword_and_core_stays(db):
+    provider = FakeProvider()
+    c = Companion(Store(db), provider, "PERSONA", memory_limit=2, memory_budget=120)
+    c.remember("likes less sugar in drinks", ["food"])
+    c.remember("studies best at night", ["study"])
+    c.remember("call him anh", ["core"])
+    for i in range(6):
+        c.remember(f"filler fact number {i}", ["misc"])
+
+    c.send("i want something sweet, less sugar please")
+    sent = system_sent(provider)
+    assert "likes less sugar in drinks" in sent
+    assert "call him anh" in sent
+    assert "studies best at night" not in sent
+    assert "filler" not in sent
+
+    c.send("my study plan")
+    assert "studies best at night" in system_sent(provider)
+    assert "likes less sugar" not in system_sent(provider)
+
+
+def test_forgotten_memory_is_no_longer_injected(db):
+    provider = FakeProvider()
+    c = launch(db, provider)
+    m = c.remember("likes tea")
+    c.forget(m.id)
+    c.send("hi")
+    assert system_sent(provider) == "PERSONA"
+
+
+def test_inline_observe_marker_is_stripped_and_still_saved(db):
+    c = launch(db, FakeProvider(["hi [observe: tags=a | likes tea] there"]))
+    shown = c.send("x")
+    assert "observe" not in shown and "observe" not in c.recent_messages()[-1].content
+    assert [m.text for m in c.memories()] == ["likes tea"]
+
+
+def test_reply_that_is_only_a_marker_is_an_error_and_can_be_retried(db):
+    provider = FakeProvider(["[observe: tags=a | likes tea]", "real reply"])
+    c = launch(db, provider)
+    with pytest.raises(ProviderError):
+        c.send("x")
+    assert c.has_unanswered_message() and c.memories() == []
+    assert c.retry() == "real reply"
+
+
+def test_common_words_do_not_count_as_keyword_matches(db):
+    provider = FakeProvider()
+    c = Companion(Store(db), provider, "PERSONA", memory_limit=2, memory_budget=30)
+    c.remember("he likes the beach", ["travel"])
+    c.remember("studies best at night", ["study"])
+    c.send("he said the")
+    assert system_sent(provider) == "PERSONA"

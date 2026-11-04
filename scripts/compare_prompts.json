@@ -1,0 +1,14 @@
+[
+  {"id": "banter-stable", "note": "dry one-liner", "messages": ["ok app ổn định r, chạy 1 lần thành công"]},
+  {"id": "heldout-03-anger", "note": "held out of the Persona: brief reply mistaken for anger", "messages": ["e có giận a k"]},
+  {"id": "heldout-10-ping", "note": "held out of the Persona: ping after three weeks", "messages": ["ê"]},
+  {"id": "deadline", "note": "blunt push to act", "messages": ["á đm a vừa nhớ ra bài nộp trong 40p nữa, đầu óc trống rỗng"]},
+  {"id": "venting-vague", "note": "ask the smallest question, no edge", "messages": ["hôm nay mệt vl"]},
+  {"id": "venting-stuck", "note": "should ask vent or plan, once", "messages": ["a làm mãi cái luận văn mà chưa ra đc gì, chán quá"]},
+  {"id": "en-only", "note": "English voice", "messages": ["i just finished the report, finally"]},
+  {"id": "en-to-vi", "note": "switch without comment", "messages": ["i finally fixed the crash", "turns out it was one line", "mà đm a mất cả tối mới thấy =))"]},
+  {"id": "recall-night", "note": "uses the Memory without reciting it", "memories": [{"text": "focuses best late at night when studying", "tags": ["study"]}], "messages": ["tối nay a phải ôn 2 chương", "h mới ăn xong", "nên học luôn hay tí nữa nhỉ"]},
+  {"id": "recall-irrelevant", "note": "Memory exists but is irrelevant: must not be mentioned", "memories": [{"text": "likes less sugar in drinks", "tags": ["food"]}], "messages": ["i finally fixed the crash"]},
+  {"id": "observed-hedged", "note": "unconfirmed Memory: should ask, not assert", "memories": [{"text": "gets started more easily after choosing a small first step", "tags": ["study"], "kind": "observed"}], "messages": ["a đang kẹt bài này, k biết bắt đầu từ đâu"]},
+  {"id": "propose-observed", "note": "should end with an [observe: ...] line", "messages": ["ok mở file với đọc câu 1 thôi mà h a làm đc 2 câu r", "hôm kia cũng vậy, a chỉ đọc đề thôi mà sau đó làm hết luôn", "hôm trước nữa cũng thế"]}
+]
