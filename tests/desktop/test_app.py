@@ -113,3 +113,13 @@ def test_character_mirrors_on_the_far_side_of_the_screen(ui):
     ui.character.move(ui.character.screen().geometry().width() - 130, 100)
     ui._face_screen_centre()
     assert ui.character._facing == "left"
+
+
+def test_vietnamese_bubbles_fit_inside_the_balloon(ui):
+    from PySide6.QtWidgets import QLabel
+    text = "vừa hong quần vừa hong mắt, nói chung là đi đi nhanh lên không là mưa đó nha"
+    ui.balloon.show_reply([text, text], None)
+    QTest.qWait(50)
+    for label in ui.balloon.findChildren(QLabel):
+        assert label.height() >= label.heightForWidth(label.width())
+        assert label.y() + label.height() <= ui.balloon.height()

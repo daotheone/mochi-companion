@@ -1,18 +1,19 @@
 from PySide6.QtCore import QPropertyAnimation, QTimer, Qt, Signal
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
+from companion.desktop.skin import BalloonSkin, SkinnedCard
 from companion.store import Memory
 
 WIDTH = 260
-BORDER = 2  # the card's stylesheet border; it shrinks the area the layout sees
+BORDER = 2  # the plain card's stylesheet border; it shrinks the area the layout sees
 BUBBLE_DELAY_MS = 700
 FADE_AFTER_MS = 30_000
 FADE_MS = 1_000
 
 STYLE = """
 QFrame#card { background: white; border: 2px solid #d9c7b8; border-radius: 14px; }
-QLabel { color: #3b2f2f; font-size: 14px; }
-QLabel#noticed { color: #7a6a60; font-size: 12px; }
+QLabel { color: %(text)s; font-size: 14px; }
+QLabel#noticed { color: %(dim)s; font-size: 12px; }
 QPushButton { font-size: 12px; padding: 2px 8px; }
 """
 
@@ -37,12 +38,21 @@ class SpeechBalloon(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setFixedWidth(WIDTH)
-        self.setStyleSheet(STYLE)
-        card = QFrame(self, objectName="card")
+        skin = BalloonSkin.load()
+        if skin:
+            card = SkinnedCard(skin)
+            self._inset = 0  # the skin is painted, not a stylesheet border
+            self.setStyleSheet(STYLE % {"text": skin.text_color, "dim": skin.text_color})
+        else:
+            card = QFrame(objectName="card")
+            self._inset = BORDER
+            self.setStyleSheet(STYLE % {"text": "#3b2f2f", "dim": "#7a6a60"})
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(card)
         self._stack = QVBoxLayout(card)
+        if skin:
+            self._stack.setContentsMargins(skin.tile, skin.tile, skin.tile, skin.tile)
         self._pending: list[str] = []
         self._noticed: Memory | None = None
         self._pinned = False
@@ -97,11 +107,7 @@ class SpeechBalloon(QWidget):
         label = QLabel(text, wordWrap=True, objectName=name)
         label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self._stack.addWidget(label)
-        # Size by hand: a layout's height-for-width pass comes up short and the lines overlap.
         label.ensurePolished()
-        m = self._stack.contentsMargins()
-        label.setFixedWidth(WIDTH - 2 * BORDER - m.left() - m.right())
-        label.setFixedHeight(label.heightForWidth(label.width()))
         label.show()  # a layout ignores hidden widgets, and a new child stays hidden until the next event-loop turn
 
     def _reveal_next(self) -> None:
@@ -140,12 +146,19 @@ class SpeechBalloon(QWidget):
                 self._stack.removeItem(item)
         self._shown()
 
-    def _shown(self) -> None:
+    def _fit(self) -> None:
         self._stack.invalidate()
-        self.setFixedHeight(self._stack.sizeHint().height() + 2 * BORDER)
+        # sizeHint() ignores word-wrap; height-for-width at the real inner width does not.
+        self.setFixedHeight(self._stack.heightForWidth(WIDTH - 2 * self._inset) + 2 * self._inset)
+        self.resized.emit()
+
+    def _shown(self) -> None:
+        self._fit()
         if not self.isVisible():
             self.show()
-        self.resized.emit()
+        # Fonts from the stylesheet only apply once the window is polished and shown, which can
+        # change the wrapped height; fit again then.
+        QTimer.singleShot(0, self._fit)
         self._restart_fade()
 
     def _restart_fade(self) -> None:

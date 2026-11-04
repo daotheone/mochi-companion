@@ -34,4 +34,5 @@ Mochi as a floating, transparent figure on the desktop (PySide6). It shares Memo
 - Running `mochi-desktop` again toggles visibility, so bind it to a GNOME shortcut or a `.desktop` launcher.
 - Position and size live in `~/.config/mochi-companion/desktop.json` (`size`, default 128).
 - Local art: put a sheet and a `frames.json` in `~/.config/mochi-companion/sprites/` and it replaces the placeholder (cells are `[column, row]` on the sheet). Use this for art whose licence forbids redistribution, e.g. the Rosa portraits (not committed).
+- Speech Balloon skin: `balloon.json` in the same folder points at a nine-slice frame image (`{"image", "slice", "scale", "text_color"}`; outside-the-border pixels become transparent). Without it the balloon is plain. The GB Studio UI pack (`frames/LIGHT BG/light frame 02.png`, slice 8, scale 2) is used locally and not committed, since it ships without a licence.
 - Art: `companion/desktop/sprites/frames.json` maps each state to a row of the spritesheet. Swap in final art by editing the map; `scripts/make_placeholder_sprites.py` regenerates the placeholder.
