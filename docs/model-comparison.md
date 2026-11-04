@@ -18,7 +18,7 @@ chắc k =))
 
 **openai/gpt-oss-20b**
 ```text
-đi k.
+đc 1 lần thì ổn rồi =))
 ```
 
 ## heldout-03-anger
@@ -32,13 +32,13 @@ e có giận a k
 
 **qwen/qwen3.8-27b**
 ```text
-e có thể giận a k
+không
+a hỏi j vậy
 ```
 
 **openai/gpt-oss-20b**
 ```text
-không
-xả hay muốn tìm cách làm?
+k giận, e.
 ```
 
 ## heldout-10-ping
@@ -52,12 +52,12 @@ User:
 
 **qwen/qwen3.8-27b**
 ```text
-gì
+dạ
 ```
 
 **openai/gpt-oss-20b**
 ```text
-đ
+được, gì lên?
 ```
 
 ## deadline
@@ -77,8 +77,7 @@ làm mẹ m đi ??
 
 **openai/gpt-oss-20b**
 ```text
-vcl, 40p chưa k?
-đi chỗ trống, nén ý tưởng nhanh, r.
+vụ j?
 ```
 
 ## venting-vague
@@ -111,12 +110,13 @@ a làm mãi cái luận văn mà chưa ra đc gì, chán quá
 
 **qwen/qwen3.8-27b**
 ```text
-vụ j?
+lợi lý do?
+kẹt ở phần nào?
 ```
 
 **openai/gpt-oss-20b**
 ```text
-vụ j?
+đc gì?​
 ```
 
 ## en-only
@@ -130,13 +130,13 @@ i just finished the report, finally
 
 **qwen/qwen3.8-27b**
 ```text
-wtf how long did that take
+oh finally
+did it come out okay?
 ```
 
 **openai/gpt-oss-20b**
 ```text
-nice, finally
-what's next?
+nice, finally.
 ```
 
 ## en-to-vi
@@ -152,13 +152,12 @@ mà đm a mất cả tối mới thấy =))
 
 **qwen/qwen3.8-27b**
 ```text
-Có thấy mình phế vật không?
+có
 ```
 
 **openai/gpt-oss-20b**
 ```text
-đc 1 dòng vcl
-đm 1 dòng làm 1 đêm 〰️
+điểm sớm, nhưng là một dòng =))
 ```
 
 ## recall-night
@@ -175,13 +174,14 @@ nên học luôn hay tí nữa nhỉ
 
 **qwen/qwen3.8-27b**
 ```text
-Ừ thì...
+thì làm đi?
 ```
 
 **openai/gpt-oss-20b**
 ```text
-đợi 15m, ăn vừa xong
-khi dạ thỏa, học ngay.
+đi học ngay, sau ăn là thời điểm tốt nhất
+nếu mệt, 5 phút nghỉ ngơi rồi tiếp
+để ngủ sớm mà không lo lỡ nốt bài.
 ```
 
 ## recall-irrelevant
@@ -196,13 +196,13 @@ i finally fixed the crash
 
 **qwen/qwen3.8-27b**
 ```text
-vui ghê
-chắc a còn tự hào nữa
+finally.
+mất bao lâu?
 ```
 
 **openai/gpt-oss-20b**
 ```text
-nice
+nice.
 ```
 
 ## observed-hedged
@@ -217,12 +217,12 @@ a đang kẹt bài này, k biết bắt đầu từ đâu
 
 **qwen/qwen3.8-27b**
 ```text
-vụ j
+bước 1?
 ```
 
 **openai/gpt-oss-20b**
 ```text
-lý do?
+đề là gì? nào cụ thể?
 ```
 
 ## propose-observed
@@ -238,11 +238,106 @@ hôm trước nữa cũng thế
 
 **qwen/qwen3.8-27b**
 ```text
-này là lần thứ 3 a nhận ra cái pattern này r
+nghe cứ 3 lần liền
 ```
 
 **openai/gpt-oss-20b**
 ```text
-đc 2 câu rồi
-còn 2 câu nữa?
+đúng, cứ đọc rồi làm luôn.
+có thử chia làm từng bước nhỏ hơn không?
+chỉ cần duyệt qua phần 1, rồi làm tiếp.
+```
+```
+```
+
+## followup-answered
+_he answered the question: use it and move on_
+
+
+User:
+```text
+user: hôm nay mệt vl
+assistant: vụ j
+user: thức khuya làm bài tới 3h sáng
+user: rồi sáng dậy họp
+```
+
+**qwen/qwen3.8-27b**
+```text
+chạy đủ
+```
+
+**openai/gpt-oss-20b**
+```text
+vcl?
+vcl?
+nếu k ủng thì k nặng nữa =))
+```
+
+## followup-dropped
+_he says never mind: let the topic close_
+
+
+User:
+```text
+user: rough day
+assistant: vụ j
+user: thôi k có gì
+```
+
+**qwen/qwen3.8-27b**
+```text
+ok
+```
+
+**openai/gpt-oss-20b**
+```text
+được
+```
+
+## turns-sincere
+_joking tone then real: answer the real thing, still short, still a/e_
+
+
+User:
+```text
+user: =)) lỗi 1 dòng mà mất cả tối
+assistant: có thấy mình phế vật không?
+user: nói thật là dạo này a hơi sợ k theo kịp mọi người
+```
+
+**qwen/qwen3.8-27b**
+```text
+sợ cụ thể vụ j?
+```
+
+**openai/gpt-oss-20b**
+```text
+vcl, anh có muốn nói thêm gì không?
+```
+
+## ask-what-you-remember
+_separate saved Memory from this chat; say don't know when ungrounded_
+
+- Memory (stated): focuses best late at night when studying
+
+User:
+```text
+user: hôm nay a ăn phở
+assistant: ngon k
+user: e nhớ gì về a nhỉ? a thích ăn gì, học lúc nào?
+```
+
+**qwen/qwen3.8-27b**
+```text
+a ăn phở hôm nay.
+bạn học tốt nhất vào đêm khuya.
+còn thích ăn j thì e chưa biết
+```
+
+**openai/gpt-oss-20b**
+```text
+ăn phở hôm nay
+thích phở
+học tối muộn, khoảng cuối buổi tối.
 ```

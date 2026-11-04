@@ -28,10 +28,10 @@ def run_case(case: dict, persona: str, api_key: str | None, model: str) -> str:
     try:
         for memory in case.get("memories", []):
             companion.store.add_memory(memory["text"], memory.get("tags", []), memory.get("kind", "stated"))
-        *earlier, last = case["messages"]
-        for text in earlier:
-            companion.store.add_message(companion.conversation_id, "user", text)
-        reply = companion.send(last)
+        *earlier, last = [m if isinstance(m, dict) else {"role": "user", "content": m} for m in case["messages"]]
+        for turn in earlier:
+            companion.store.add_message(companion.conversation_id, turn["role"], turn["content"])
+        reply = companion.send(last["content"])
         proposal = f"\n[saved Observed: {companion.last_proposal.text}]" if companion.last_proposal else ""
         return reply + proposal
     except ProviderError as e:
@@ -60,7 +60,7 @@ def main() -> None:
         lines += [f"## {case['id']}", f"_{case['note']}_", ""]
         for memory in case.get("memories", []):
             lines.append(f"- Memory ({memory.get('kind', 'stated')}): {memory['text']}")
-        lines += ["", "User:", "```text", *case["messages"], "```", ""]
+        lines += ["", "User:", "```text", *(m if isinstance(m, str) else f"{m['role']}: {m['content']}" for m in case["messages"]), "```", ""]
         for model in models:
             reply = run_case(case, persona, api_key, model)
             lines += [f"**{model}**", "```text", reply, "```", ""]
