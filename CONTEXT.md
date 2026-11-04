@@ -37,7 +37,7 @@ A Memory Mochi inferred from patterns and that stays tentative until the user co
 _Avoid_: learned, implicit, assumption
 
 **Conversation**:
-An ordered sequence of messages between the user and Mochi that can be closed and reopened later.
+An ordered sequence of messages between the user and Mochi that can be closed and reopened later. Each one belongs to a single Interface.
 _Avoid_: session, chat, thread
 
 **Tag**:
@@ -55,3 +55,23 @@ _Avoid_: chunk, part, split message
 **Core**:
 A reserved Tag that keeps a Memory in every prompt, however little room there is.
 _Avoid_: pinned, always-on
+
+**Chat Box**:
+The small input that appears when the user clicks the Character, for typing a Message.
+_Avoid_: chat panel, popup, input bar
+
+**Speech Balloon**:
+The balloon beside the Character that shows only Mochi's most recent reply. A Bubble is a line of a Message; a Speech Balloon is where that reply appears.
+_Avoid_: chat bubble, tooltip
+
+**Main Window**:
+The full UI, opened by double-clicking the Character, that shows the Conversation history.
+_Avoid_: chat panel, dashboard, full UI
+
+**Interface**:
+A way of talking to Mochi. The Character is the real app; the terminal exists for testing. Each keeps its own Conversations, and all share the same Memories.
+_Avoid_: client, frontend, instance
+
+**Recap**:
+A brief, dated summary of a finished Conversation, including whether anything was left unresolved. Unlike a Memory it fades with age and is never edited.
+_Avoid_: summary, history, digest
