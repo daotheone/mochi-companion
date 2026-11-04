@@ -3,7 +3,7 @@ from companion.store import Store, StoredMessage
 
 
 class Companion:
-    """Core chat logic: no UI dependency. A Conversation is reopened from the Store."""
+    """Core Conversation logic: no UI dependency. A Conversation is reopened from the Store."""
 
     def __init__(self, store: Store, provider: Provider, persona: str, history_limit: int = 20):
         self.store = store
@@ -13,7 +13,7 @@ class Companion:
         self.conversation_id = store.latest_conversation() or store.new_conversation()
 
     def recent_messages(self, limit: int | None = None) -> list[StoredMessage]:
-        return self.store.recent_messages(self.conversation_id, limit or self.history_limit)
+        return self.store.recent_messages(self.conversation_id, self.history_limit if limit is None else limit)
 
     def new_conversation(self) -> None:
         self.conversation_id = self.store.new_conversation()

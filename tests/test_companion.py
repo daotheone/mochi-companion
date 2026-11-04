@@ -88,3 +88,9 @@ def test_retry_with_nothing_unanswered_is_an_error(db):
     c = launch(db, FakeProvider())
     with pytest.raises(ProviderError):
         c.retry()
+
+
+def test_history_limit_zero_is_honoured_not_defaulted(db):
+    c = launch(db, FakeProvider())
+    c.send("hi")
+    assert c.recent_messages(0) == []

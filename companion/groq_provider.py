@@ -30,7 +30,10 @@ class GroqProvider:
             raise ProviderError(f"Groq rejected the API key: {e}") from e
         except groq.APIStatusError as e:
             raise ProviderError(f"Groq returned an error ({e.status_code}): {e}") from e
-        content = response.choices[0].message.content
+        try:
+            content = response.choices[0].message.content
+        except (IndexError, AttributeError) as e:
+            raise ProviderError("Groq returned a malformed reply.") from e
         if not content:
             raise ProviderError("Groq returned an empty reply.")
         return content.strip()

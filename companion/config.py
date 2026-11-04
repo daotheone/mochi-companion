@@ -19,6 +19,17 @@ def load_dotenv(path: Path, environ: dict[str, str]) -> None:
         environ.setdefault(key.strip(), value.strip().strip("'\""))
 
 
+def _positive_int(environ: dict[str, str], key: str, default: int) -> int:
+    raw = environ.get(key, str(default))
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value < 1:
+        raise SystemExit(f"{key} must be a positive integer, got {raw!r}")
+    return value
+
+
 @dataclass(frozen=True)
 class Config:
     api_key: str | None
@@ -38,7 +49,7 @@ class Config:
         return cls(
             api_key=environ.get("GROQ_API_KEY") or None,
             model=environ.get("MOCHI_MODEL", DEFAULT_MODEL),
-            history_limit=int(environ.get("MOCHI_HISTORY_LIMIT", DEFAULT_HISTORY_LIMIT)),
+            history_limit=_positive_int(environ, "MOCHI_HISTORY_LIMIT", DEFAULT_HISTORY_LIMIT),
             db_path=data_dir / "mochi.db",
             persona_path=Path(environ.get("MOCHI_PERSONA", PROJECT_ROOT / "persona/mochi.md")),
         )
