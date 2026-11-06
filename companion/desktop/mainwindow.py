@@ -1,10 +1,12 @@
-from PySide6.QtCore import QTimer, Qt, Signal
+from PySide6.QtCore import QEvent, QTimer, Qt, Signal
+from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (
     QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
     QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from companion.desktop import chatlog, theme
+from companion.desktop.face import Face
 from companion.store import Memory, Recap, StoredMessage
 
 
@@ -55,24 +57,44 @@ class ComingSoon(QWidget):
         layout.addStretch()
 
 
+class Portrait(QWidget):
+    """Mochi's face in the Main Window, at the art's native size and direction."""
+
+    SIZE = 128
+
+    def __init__(self, face: Face):
+        super().__init__()
+        self.setFixedSize(self.SIZE, self.SIZE)
+        self._face = face
+        face.changed.connect(self.update)
+
+    def paintEvent(self, _event) -> None:
+        QPainter(self).drawPixmap(0, 0, self._face.pixmap(self.size(), False))
+
+
 class ConversationView(QWidget):
     send_requested = Signal(str)
     new_requested = Signal()
     save_log_requested = Signal()
+    retry_requested = Signal()
+    confirm_requested = Signal(int)
+    forget_requested = Signal(int)
 
-    def __init__(self):
+    def __init__(self, face: Face):
         super().__init__(objectName="page")
         self._messages: list[StoredMessage] = []
         self._busy = False
+        self._notice: QWidget | None = None
+        self.portrait = Portrait(face)
 
         self._column = QVBoxLayout()
         self._column.setSpacing(8)
         self._column.setContentsMargins(0, 0, 8, 0)
         holder = QWidget(objectName="page")
-        holder_layout = QVBoxLayout(holder)
-        holder_layout.setContentsMargins(0, 0, 0, 0)
-        holder_layout.addLayout(self._column)
-        holder_layout.addStretch()
+        self._holder_layout = QVBoxLayout(holder)
+        self._holder_layout.setContentsMargins(0, 0, 0, 0)
+        self._holder_layout.addLayout(self._column)
+        self._holder_layout.addStretch()
         self._scroll = QScrollArea(widgetResizable=True, frameShape=QFrame.Shape.NoFrame)
         self._scroll.setWidget(holder)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -100,13 +122,20 @@ class ConversationView(QWidget):
         row.addWidget(mic)
         row.addWidget(self._input, 1)
         row.addWidget(self._send)
+        bottom = QHBoxLayout()
+        bottom.setSpacing(12)
+        bottom.addWidget(self.portrait)
+        beside = QVBoxLayout()
+        beside.addStretch()
+        beside.addLayout(row)
+        bottom.addLayout(beside, 1)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(12)
         layout.addLayout(header)
         layout.addWidget(self._empty, 1)
         layout.addWidget(self._scroll, 1)
-        layout.addLayout(row)
+        layout.addLayout(bottom)
         self._empty.show()
         self._scroll.hide()
 
@@ -143,6 +172,38 @@ class ConversationView(QWidget):
         self._empty.setVisible(not messages)
         self._scroll.setVisible(bool(messages))
         QTimer.singleShot(0, self._to_bottom)
+
+    def show_error(self, message: str) -> None:
+        self._show_notice(message, [("Retry", self.retry_requested.emit)])
+
+    def show_noticed(self, memory: Memory) -> None:
+        self._show_notice(f"mochi noticed: {memory.text}", [
+            ("Confirm", lambda: self.confirm_requested.emit(memory.id)),
+            ("Forget", lambda: self.forget_requested.emit(memory.id)),
+        ])
+
+    def _show_notice(self, text: str, actions: list) -> None:
+        """A note at the bottom of the history, with buttons; using one dismisses it."""
+        self.clear_notice()
+        self._notice = QWidget()
+        column = QVBoxLayout(self._notice)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.addWidget(QLabel(text, objectName="hint", wordWrap=True))
+        row = QHBoxLayout()
+        for caption, action in actions:
+            button = _button(caption)
+            button.clicked.connect(lambda _=False, action=action: (self.clear_notice(), action()))
+            row.addWidget(button)
+        row.addStretch()
+        column.addLayout(row)
+        self._holder_layout.insertWidget(1, self._notice)
+        QTimer.singleShot(0, self._to_bottom)
+
+    def clear_notice(self) -> None:
+        if self._notice is not None:
+            self._notice.setParent(None)
+            self._notice.deleteLater()
+            self._notice = None
 
     def _to_bottom(self) -> None:
         bar = self._scroll.verticalScrollBar()
@@ -355,13 +416,15 @@ class RecapsView(QWidget):
 class MainWindow(QMainWindow):
     """A sidebar of views. Tasks is a stand-in until that feature exists."""
 
-    def __init__(self):
+    presence_changed = Signal()  # shown, hidden, minimised or restored
+
+    def __init__(self, face: Face):
         super().__init__()
         self.setWindowTitle("Mochi")
         self.resize(860, 580)
         self.setMinimumSize(640, 420)
         self.setStyleSheet(theme.STYLE)
-        self.conversation = ConversationView()
+        self.conversation = ConversationView(face)
         self.memories = MemoriesView()
         self.recaps = RecapsView()
         self.conversation.save_log_requested.connect(self._save_log)
@@ -408,7 +471,25 @@ class MainWindow(QMainWindow):
         path = chatlog.save(messages)
         self.statusBar().showMessage(f"Saved {path}", 6000)
 
+    @property
+    def present(self) -> bool:
+        return self.isVisible() and not self.isMinimized()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.presence_changed.emit()
+
+    def hideEvent(self, event) -> None:
+        super().hideEvent(event)
+        self.presence_changed.emit()
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange:
+            self.presence_changed.emit()
+
     def open(self) -> None:
+        self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized)
         self.show()
         self.raise_()
         self.activateWindow()

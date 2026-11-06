@@ -30,7 +30,7 @@ Mochi as a floating, transparent figure on the desktop (PySide6). It shares Memo
 
 - Install: `uv sync --extra desktop` (or `.venv/bin/pip install -e '.[desktop]'`). Launch: `mochi-desktop`.
 - Runs through XWayland (`QT_QPA_PLATFORM=xcb`, see ADR 0001). Typing Vietnamese needs your IBus input method to reach XWayland apps (`QT_IM_MODULE=ibus` if it does not).
-- Click Mochi for the Chat Box (Esc or click again to close); double-click for the Main Window (Conversation, Memories). Right-click: Hide, Quit.
+- Click Mochi for the Chat Box (Esc or click again to close); double-click for the Main Window (Conversation, Memories), where Mochi moves into a Portrait until it closes or is minimised. Right-click: Hide, Quit.
 - Running `mochi-desktop` again toggles visibility, so bind it to a GNOME shortcut or a `.desktop` launcher.
 - Position and size live in `~/.config/mochi-companion/desktop.json` (`size`, default 128).
 - Local art: put a sheet and a `frames.json` in `~/.config/mochi-companion/sprites/` and it replaces the bundled art (cells are `[column, row]` on the sheet). The map must define all 8 Expressions, or it is ignored with a warning.

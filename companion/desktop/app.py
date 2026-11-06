@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QApplication
 from companion.app import build_companion
 from companion.companion import NEUTRAL
 from companion.desktop import placement
-from companion.desktop.balloon import SpeechBalloon
+from companion.desktop.balloon import FADE_AFTER_MS, SpeechBalloon
 from companion.desktop.chatbox import ChatBox
 from companion.desktop.character import CharacterWindow
 from companion.desktop.face import Face
@@ -49,8 +49,11 @@ class DesktopApp(QObject):
         self.character = CharacterWindow(self.face, settings.size)
         self.chatbox = ChatBox(settings.size)
         self.balloon = SpeechBalloon()
-        self.main_window = MainWindow()
+        self.main_window = MainWindow(self.face)
         self._busy = False
+        self._character_wanted = False  # the user's choice; the Main Window can still replace the Character
+        # With no Speech Balloon to fade, this is what ends an Expression in the Main Window.
+        self._expression_hold = QTimer(self, singleShot=True, interval=FADE_AFTER_MS, timeout=self._calm)
         self._wire()
 
     def _wire(self) -> None:
@@ -88,7 +91,13 @@ class DesktopApp(QObject):
         c.quit_requested.connect(QApplication.quit)
         self.chatbox.closed.connect(lambda: b.set_pinned(False))
         b.resized.connect(self._place_balloon)
-        b.fading.connect(lambda: self.face.set_expression(NEUTRAL))
+        b.fading.connect(self._calm)
+        m.presence_changed.connect(self._sync_character)
+        conversation = m.conversation
+        conversation.retry_requested.connect(self.retry_requested)
+        conversation.confirm_requested.connect(w.confirm_memory)
+        conversation.forget_requested.connect(w.forget_memory)
+        conversation.new_requested.connect(conversation.clear_notice)
 
     # --- state ---
     def _set_busy(self, busy: bool) -> None:
@@ -100,6 +109,7 @@ class DesktopApp(QObject):
         if state == "thinking":
             self._set_busy(True)
             self.balloon.hide()
+            self.main_window.conversation.clear_notice()
             self.face.set_thinking(True)
         else:
             self._set_busy(False)
@@ -108,10 +118,22 @@ class DesktopApp(QObject):
     def _on_reply(self, bubbles: list, noticed, expression: str) -> None:
         self._set_busy(False)
         self.face.set_expression(expression)
-        self.balloon.show_reply(bubbles, noticed)
+        if self.main_window.present:
+            self._expression_hold.start()
+            if noticed:
+                self.main_window.conversation.show_noticed(noticed)
+        else:
+            self.balloon.show_reply(bubbles, noticed)
 
     def _on_failure(self, message: str) -> None:
-        self.balloon.show_error(message)
+        self.main_window.conversation.show_error(message)  # also here, so Retry survives opening the Main Window
+        if not self.main_window.present:
+            self.balloon.show_error(message)
+
+    def _calm(self) -> None:
+        """Back to neutral, unless Mochi has since started thinking about the next reply."""
+        if not self.face.thinking:
+            self.face.set_expression(NEUTRAL)
 
     # --- placement ---
     def _current_screen(self) -> placement.Screen:
@@ -172,17 +194,30 @@ class DesktopApp(QObject):
         self.main_window.open()
 
     def hide_character(self) -> None:
+        self._character_wanted = False
+        self._sync_character()
+        self._calm()
+
+    def show_character(self) -> None:
+        self._character_wanted = True
+        self._sync_character()
+
+    def _sync_character(self) -> None:
+        """Mochi is on screen once: as the Portrait while the Main Window is up, else as the Character."""
+        present = self.main_window.present
+        if self._character_wanted and not present:
+            if not self.character.isVisible():
+                self.place_character()
+                self.character.show()
+            return
+        if present and not self._expression_hold.isActive():
+            self._expression_hold.start()  # the Speech Balloon was going to end any Expression still showing
         self.chatbox.close()
         self.balloon.hide()
         self.character.hide()
-        self.face.set_expression(NEUTRAL)
-
-    def show_character(self) -> None:
-        self.place_character()
-        self.character.show()
 
     def toggle_visibility(self) -> None:
-        if self.character.isVisible():
+        if self._character_wanted:
             self.hide_character()
         else:
             self.show_character()
