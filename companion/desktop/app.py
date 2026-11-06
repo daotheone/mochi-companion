@@ -40,6 +40,7 @@ class DesktopApp(QObject):
     retry_requested = Signal()
     new_conversation_requested = Signal()
     shutdown_requested = Signal()
+    notice_answer_requested = Signal(object, str)
 
     def __init__(self, settings: DesktopSettings, worker: Worker):
         super().__init__()
@@ -51,6 +52,8 @@ class DesktopApp(QObject):
         self.balloon = SpeechBalloon()
         self.main_window = MainWindow(self.face)
         self._busy = False
+        self._notice = None  # the Reminder or Check-in waiting to be answered
+        self._notice_up = False  # whether it is on screen right now
         self._character_wanted = False  # the user's choice; the Main Window can still replace the Character
         # With no Speech Balloon to fade, this is what ends an Expression in the Main Window.
         self._expression_hold = QTimer(self, singleShot=True, interval=FADE_AFTER_MS, timeout=self._calm)
@@ -75,6 +78,24 @@ class DesktopApp(QObject):
         m.memories.tags_requested.connect(w.set_memory_tags)
         m.memories.confirm_requested.connect(w.confirm_memory)
         m.memories.forget_requested.connect(w.forget_memory)
+        # Tasks, Reminders and Check-ins
+        self.notice_answer_requested.connect(w.answer_notice)
+        for source in (b.notice_answered, m.conversation.notice_answered):
+            source.connect(self._on_notice_answered)
+        for source in (b.task_add_requested, m.conversation.task_add_requested):
+            source.connect(w.accept_task)
+        t = m.tasks
+        t.add_requested.connect(w.add_task)
+        t.edit_requested.connect(w.edit_task)
+        t.done_requested.connect(w.complete_task)
+        t.drop_requested.connect(w.drop_task)
+        t.delete_requested.connect(w.delete_task)
+        t.focus_requested.connect(w.start_focus)
+        t.focus_stop_requested.connect(w.stop_focus)
+        w.tasks_changed.connect(m.show_tasks)
+        w.notice_changed.connect(self._on_notice)
+        b.dismissed.connect(self._maybe_show_notice)
+        self.chatbox.closed.connect(lambda: QTimer.singleShot(0, self._maybe_show_notice))  # still visible during closeEvent
         # worker -> windows
         w.state_changed.connect(self._on_worker_state)
         w.replied.connect(self._on_reply)
@@ -108,23 +129,58 @@ class DesktopApp(QObject):
     def _on_worker_state(self, state: str) -> None:
         if state == "thinking":
             self._set_busy(True)
+            self._notice_up = False  # it waits while Mochi thinks, then comes back
             self.balloon.hide()
             self.main_window.conversation.clear_notice()
             self.face.set_thinking(True)
-        else:
-            self._set_busy(False)
-            self.face.set_thinking(False)
+            return
+        self._set_busy(False)
+        self.face.set_thinking(False)
+        self._maybe_show_notice()
 
-    def _on_reply(self, bubbles: list, noticed, expression: str) -> None:
+    def _on_reply(self, bubbles: list, noticed, expression: str, proposal) -> None:
         self._set_busy(False)
         self.face.set_expression(expression)
         if self.main_window.present:
             self._expression_hold.start()
             if noticed:
                 self.main_window.conversation.show_noticed(noticed)
+            if proposal:
+                self.main_window.conversation.show_proposal(proposal)
         else:
             self._expression_hold.stop()  # the Speech Balloon's fade ends this one
-            self.balloon.show_reply(bubbles, noticed)
+            self.balloon.show_reply(bubbles, noticed, proposal)
+        self._maybe_show_notice()
+
+    # --- Reminders and Check-ins ---
+    def _on_notice(self, notice) -> None:
+        self._notice, self._notice_up = notice, False
+        if notice is None:
+            self.main_window.conversation.clear_notice("alert")
+            if self.balloon.sticky_notice:
+                self.balloon.hide()
+            self._calm()
+        self._maybe_show_notice()
+
+    def _on_notice_answered(self, notice, action: str) -> None:
+        self._notice, self._notice_up = None, False
+        self._calm()
+        self.notice_answer_requested.emit(notice, action)
+
+    def _maybe_show_notice(self) -> None:
+        """One at a time; they wait while Mochi thinks or the Chat Box is open, and while the Character is hidden."""
+        notice = self._notice
+        if notice is None or self._notice_up or self._busy or self.chatbox.isVisible():
+            return
+        if self.main_window.present:
+            self.main_window.conversation.show_alert(notice)
+        elif self.character.isVisible() and not self.balloon.isVisible():
+            self.balloon.show_notice(notice)
+        else:
+            return
+        self._notice_up = True
+        self._expression_hold.stop()  # an answered Notice, not a timer, ends this Expression
+        self.face.set_expression(notice.expression)
 
     def _on_failure(self, message: str) -> None:
         self.main_window.conversation.show_error(message)  # also here, so Retry survives opening the Main Window
@@ -206,6 +262,13 @@ class DesktopApp(QObject):
 
     def _sync_character(self) -> None:
         """Mochi is on screen once: as the Portrait while the Main Window is up, else as the Character."""
+        self._notice_up = False  # it moves with Mochi: balloon, or the Chat view's row
+        try:
+            self._sync_character_windows()
+        finally:
+            self._maybe_show_notice()
+
+    def _sync_character_windows(self) -> None:
         present = self.main_window.present
         if self._character_wanted and not present:
             if not self.character.isVisible():

@@ -1,0 +1,21 @@
+{
+  "checkin": [
+    "hết giờ r, {title} xong chưa",
+    "ê hết giờ r. {title} sao r a",
+    "đồng hồ kêu r nè, {title} tới đâu r"
+  ],
+  "reminder": [
+    "tới giờ r: {title}",
+    "ê, {title} tới hạn r đó",
+    "{title}. tới giờ r a"
+  ],
+  "reminder_snoozed": [
+    "đã bảo tới giờ r mà: {title}",
+    "lại {title} nè, đừng lơ nữa",
+    "{title}. lần nữa đó"
+  ],
+  "reminder_group": [
+    "{count} việc tới hạn r: {titles}",
+    "dồn {count} việc r a: {titles}"
+  ]
+}

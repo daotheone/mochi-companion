@@ -1,13 +1,16 @@
-from PySide6.QtCore import QEvent, Qt, Signal
+from datetime import date, datetime, time
+
+from PySide6.QtCore import QDate, QEvent, QTime, QTimer, Qt, Signal
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (
-    QAbstractItemView, QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineEdit, QListView, QListWidget, QListWidgetItem, QMainWindow,
+    QAbstractItemView, QButtonGroup, QCheckBox, QDateEdit, QTimeEdit, QFrame, QHBoxLayout, QLabel, QLineEdit, QListView, QListWidget, QListWidgetItem, QMainWindow,
     QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from companion.desktop import chatlog, theme
 from companion.desktop.face import Face
-from companion.store import Memory, Recap, StoredMessage
+from companion.store import FocusSession, Memory, Recap, StoredMessage, Task
+from companion.tasks import TaskProposal, format_due
 
 
 SIDEBAR_WIDTH = 170
@@ -47,27 +50,20 @@ def _header(title: str, hint: str = "") -> QHBoxLayout:
     return row
 
 
-class ComingSoon(QWidget):
-    """Stand-in for a feature that does not exist yet."""
-
-    def __init__(self, title: str, text: str, issue: str):
-        super().__init__(objectName="page")
-        card = QFrame(objectName="soon")
-        inner = QVBoxLayout(card)
-        inner.setContentsMargins(32, 32, 32, 32)
-        inner.setSpacing(6)
-        for widget in (
-            QLabel(title, objectName="title"),
-            QLabel(text, objectName="hint", wordWrap=True),
-            QLabel(f"Coming soon · {issue}", objectName="hint"),
-        ):
-            widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            inner.addWidget(widget)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 28, 28, 28)
-        layout.addStretch()
-        layout.addWidget(card)
-        layout.addStretch()
+def strip_text(tasks: list[Task], sessions: list[FocusSession], now: datetime) -> str:
+    """The Chat view's slim strip: the running Focus Session and how many open Tasks are due today."""
+    parts = []
+    running = next((s for s in sessions if s.ended_at is None), None)
+    if running:
+        left = (running.ends_at - now).total_seconds()
+        parts.append(
+            f"Focus: {running.task_title} · {int(left // 60):d}:{int(left % 60):02d} left" if left > 0
+            else f"Focus: {running.task_title} · time is up"
+        )
+    today = sum(1 for t in tasks if t.status == "open" and t.due is not None and t.due.date() <= now.date())
+    if today:
+        parts.append(f"{today} Task{'s' if today != 1 else ''} due today or overdue")
+    return "   ·   ".join(parts)
 
 
 class Portrait(QWidget):
@@ -92,12 +88,16 @@ class ConversationView(QWidget):
     retry_requested = Signal()
     confirm_requested = Signal(int)
     forget_requested = Signal(int)
+    task_add_requested = Signal(object)
+    notice_answered = Signal(object, str)
 
     def __init__(self, face: Face):
         super().__init__(objectName="page")
         self._messages: list[StoredMessage] = []
         self._busy = False
-        self._notice: QWidget | None = None
+        self._notices: dict[str, QWidget] = {}  # by slot: a reply can carry several, answered independently
+        self._strip = QLabel(objectName="hint", wordWrap=True)
+        self._strip.hide()
         self.portrait = Portrait(face)
 
         self._column = QVBoxLayout()
@@ -151,6 +151,7 @@ class ConversationView(QWidget):
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(12)
         layout.addLayout(header)
+        layout.addWidget(self._strip)
         layout.addWidget(self._empty, 1)
         layout.addWidget(self._scroll, 1)
         layout.addLayout(bottom)
@@ -191,37 +192,56 @@ class ConversationView(QWidget):
         self._scroll.setVisible(bool(messages))
         self._at_bottom = True
 
+    def set_strip(self, text: str) -> None:
+        """One line about the running Focus Session and what is due today; hidden when there is nothing."""
+        self._strip.setText(text)
+        self._strip.setVisible(bool(text))
+
     def show_error(self, message: str) -> None:
-        self._show_notice(message, [("Retry", self.retry_requested.emit)])
+        self._show_notice("error", message, [("Retry", self.retry_requested.emit)])
 
     def show_noticed(self, memory: Memory) -> None:
-        self._show_notice(f"mochi noticed: {memory.text}", [
+        self._show_notice("noticed", f"mochi noticed: {memory.text}", [
             ("Confirm", lambda: self.confirm_requested.emit(memory.id)),
             ("Forget", lambda: self.forget_requested.emit(memory.id)),
         ])
 
-    def _show_notice(self, text: str, actions: list) -> None:
-        """A note at the bottom of the history, with buttons; using one dismisses it."""
-        self.clear_notice()
-        self._notice = QWidget()
-        column = QVBoxLayout(self._notice)
+    def show_proposal(self, proposal: TaskProposal) -> None:
+        self._show_notice("proposal", f"task: {proposal.title} ({format_due(proposal.due, proposal.has_time)})", [
+            ("Add", lambda: self.task_add_requested.emit(proposal)),
+            ("Dismiss", lambda: None),
+        ])
+
+    def show_alert(self, notice) -> None:
+        """A Reminder or Check-in, in place of the Speech Balloon while the Main Window is open."""
+        self._show_notice("alert", notice.text, [
+            (caption, lambda action=action: self.notice_answered.emit(notice, action))
+            for action, caption in notice.actions
+        ])
+
+    def _show_notice(self, slot: str, text: str, actions: list) -> None:
+        """A note at the bottom of the history, with buttons; using one dismisses only it."""
+        self.clear_notice(slot)
+        notice = QWidget()
+        column = QVBoxLayout(notice)
         column.setContentsMargins(0, 0, 0, 0)
         column.addWidget(QLabel(text, objectName="hint", wordWrap=True))
         row = QHBoxLayout()
         for caption, action in actions:
             button = _button(caption)
-            button.clicked.connect(lambda _=False, action=action: (self.clear_notice(), action()))
+            button.clicked.connect(lambda _=False, action=action: (self.clear_notice(slot), action()))
             row.addWidget(button)
         row.addStretch()
         column.addLayout(row)
-        self._holder_layout.insertWidget(1, self._notice)
+        self._notices[slot] = notice
+        self._holder_layout.insertWidget(len(self._notices), notice)
         self._at_bottom = True
 
-    def clear_notice(self) -> None:
-        if self._notice is not None:
-            self._notice.setParent(None)
-            self._notice.deleteLater()
-            self._notice = None
+    def clear_notice(self, slot: str | None = None) -> None:
+        for key in [slot] if slot else list(self._notices):
+            if (notice := self._notices.pop(key, None)) is not None:
+                notice.setParent(None)
+                notice.deleteLater()
 
     def _follow(self, _minimum: int, maximum: int) -> None:
         if self._at_bottom:
@@ -378,6 +398,216 @@ class MemoriesView(QWidget):
             self.forget_requested.emit(m.id)
 
 
+class TasksView(QWidget):
+    """Every Task, with add, edit, done, drop, Focus Sessions and each Task's Focus Session history."""
+
+    add_requested = Signal(str, str, object, bool)  # title, why, due, has_time
+    edit_requested = Signal(int, str, str, object, bool)
+    done_requested = Signal(int)
+    drop_requested = Signal(int)
+    delete_requested = Signal(int)
+    focus_requested = Signal(int)
+    focus_stop_requested = Signal()
+
+    def __init__(self):
+        super().__init__(objectName="page")
+        self._tasks: list[Task] = []
+        self._sessions: list[FocusSession] = []
+        self._shown: list[Task] = []
+        self._filter = "open"
+        self._list = _wrapping_list()
+        self._list.setSpacing(0)
+        self._empty = QLabel("Nothing here yet.", objectName="hint", alignment=Qt.AlignmentFlag.AlignCenter)
+        self._title = QLineEdit(placeholderText="What do you need to do?")
+        self._why = QLineEdit(placeholderText="Why? (optional)")
+        self._has_due = QCheckBox("Due")
+        self._date = QDateEdit(QDate.currentDate(), calendarPopup=True)
+        self._has_time = QCheckBox("at")
+        self._clock = QTimeEdit(QTime(9, 0))
+        self._note = QLabel(wordWrap=True, objectName="note")
+        self._history = QLabel(wordWrap=True, objectName="hint")
+        self._save = _button("Add Task", "primary")
+        self._done = _button("Done")
+        self._drop = _button("Drop", tip="You decided not to do it")
+        self._focus = _button("Start focus")
+        self._delete = _button("Delete", "danger", "Remove it completely")
+        new = _button("+ New Task", "primary")
+
+        self._chips: dict[str, QPushButton] = {}
+        group = QButtonGroup(self)
+        chips = QHBoxLayout()
+        for key, caption in (("open", "Open"), ("done", "Done"), ("dropped", "Dropped"), ("all", "All")):
+            chip = _button(caption, "chip")
+            chip.setCheckable(True)
+            chip.setChecked(key == self._filter)
+            group.addButton(chip)
+            chip.clicked.connect(lambda _=False, k=key: self._set_filter(k))
+            chips.addWidget(chip)
+            self._chips[key] = chip
+        chips.addStretch()
+
+        self._list.currentRowChanged.connect(self._select)
+        self._has_due.toggled.connect(self._sync_due_fields)
+        self._has_time.toggled.connect(self._sync_due_fields)
+        self._save.clicked.connect(self._on_save)
+        self._done.clicked.connect(lambda: self.done_requested.emit(self._selected().id))
+        self._drop.clicked.connect(lambda: self.drop_requested.emit(self._selected().id))
+        self._focus.clicked.connect(self._on_focus)
+        self._delete.clicked.connect(self._on_delete)
+        new.clicked.connect(self._new)
+
+        header = _header("Tasks", "What you mean to do, and focus sessions on it")
+        header.addWidget(new)
+        form = QFrame(objectName="card")
+        form_layout = QVBoxLayout(form)
+        form_layout.setContentsMargins(14, 14, 14, 14)
+        form_layout.addWidget(self._title)
+        form_layout.addWidget(self._why)
+        due_row = QHBoxLayout()
+        for widget in (self._has_due, self._date, self._has_time, self._clock):
+            due_row.addWidget(widget)
+        due_row.addStretch()
+        form_layout.addLayout(due_row)
+        form_layout.addWidget(self._note)
+        buttons = QHBoxLayout()
+        for button in (self._save, self._done, self._drop, self._focus):
+            buttons.addWidget(button)
+        buttons.addStretch()
+        buttons.addWidget(self._delete)
+        form_layout.addLayout(buttons)
+        form_layout.addWidget(self._history)
+
+        left = QVBoxLayout()
+        left.addLayout(chips)
+        left.addWidget(self._list, 1)
+        left.addWidget(self._empty, 1)
+        body = QHBoxLayout()
+        body.setSpacing(16)
+        body.addLayout(left, 5)
+        body.addWidget(form, 4, Qt.AlignmentFlag.AlignTop)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+        layout.addLayout(header)
+        layout.addLayout(body, 1)
+        self._select(-1)
+
+    def _set_filter(self, key: str) -> None:
+        self._filter = key
+        self.show_tasks(self._tasks, self._sessions)
+
+    def _new(self) -> None:
+        self._list.setCurrentRow(-1)
+        self._select(-1)
+        self._title.setFocus()
+
+    def _running(self) -> FocusSession | None:
+        return next((s for s in self._sessions if s.ended_at is None), None)
+
+    def show_tasks(self, tasks: list[Task], sessions: list[FocusSession]) -> None:
+        keep = self._selected().id if self._selected() else None
+        self._tasks, self._sessions = tasks, sessions
+        for key, chip in self._chips.items():
+            count = len(tasks) if key == "all" else sum(t.status == key for t in tasks)
+            chip.setText(f"{key.capitalize()} · {count}")
+        self._shown = [t for t in tasks if self._filter in ("all", t.status)]
+        self._list.blockSignals(True)
+        self._list.clear()
+        now = datetime.now()
+        for t in self._shown:
+            late = t.status == "open" and t.due is not None and (
+                t.due if t.due_has_time else datetime.combine(t.due.date(), time(23, 59))
+            ) < now
+            line = f"{t.title}\n{format_due(t.due, t.due_has_time)}{'  ·  overdue' if late else ''}"
+            line += f"  ·  {t.status}" if t.status != "open" else ""
+            self._list.addItem(QListWidgetItem(line + (f"\nwhy: {t.why}" if t.why else "")))
+        row = next((i for i, t in enumerate(self._shown) if t.id == keep), -1)
+        self._list.setCurrentRow(row)
+        self._list.blockSignals(False)
+        self._empty.setVisible(not self._shown)
+        self._list.setVisible(bool(self._shown))
+        self._select(row)
+
+    def _selected(self) -> Task | None:
+        row = self._list.currentRow()
+        return self._shown[row] if 0 <= row < len(self._shown) else None
+
+    def _sync_due_fields(self) -> None:
+        self._date.setEnabled(self._has_due.isChecked())
+        self._has_time.setEnabled(self._has_due.isChecked())
+        self._clock.setEnabled(self._has_due.isChecked() and self._has_time.isChecked())
+
+    def _select(self, _row: int) -> None:
+        t = self._selected()
+        self._title.setText(t.title if t else "")
+        self._why.setText(t.why or "" if t else "")
+        self._has_due.setChecked(bool(t and t.due))
+        self._has_time.setChecked(bool(t and t.due and t.due_has_time))
+        if t and t.due:
+            self._date.setDate(QDate(t.due.year, t.due.month, t.due.day))
+            self._clock.setTime(QTime(t.due.hour, t.due.minute) if t.due_has_time else QTime(9, 0))
+        else:
+            self._date.setDate(QDate.currentDate())
+            self._clock.setTime(QTime(9, 0))
+        self._sync_due_fields()
+        self._save.setText("Save" if t else "Add Task")
+        for button in (self._drop, self._delete):
+            button.setVisible(t is not None)
+        self._done.setVisible(bool(t and t.status == "open"))
+        self._drop.setVisible(bool(t and t.status == "open"))
+        running = self._running()
+        self._focus.setVisible(bool(t and (t.status == "open" or (running and running.task_id == t.id))))
+        self._focus.setText("Stop focus" if running and t and running.task_id == t.id else "Start focus")
+        self._focus.setEnabled(not running or bool(t and running.task_id == t.id))
+        self._note.setText(
+            f"Added from a chat with Mochi." if t and t.conversation_id is not None else ""
+        )
+        sessions = [s for s in self._sessions if t and s.task_id == t.id]
+        self._history.setText("Focus sessions:\n" + "\n".join(self._session_line(s) for s in sessions) if sessions else "")
+
+    @staticmethod
+    def _session_line(s: FocusSession) -> str:
+        if s.ended_at is None:
+            outcome = "running"
+        else:
+            outcome = (s.outcome or "") + ("" if s.answered else " (not answered)")
+        return f"{s.started_at:%a %d %b, %H:%M}  ·  {s.planned_minutes} min  ·  {outcome}"
+
+    def _due(self) -> tuple[datetime | None, bool]:
+        if not self._has_due.isChecked():
+            return None, False
+        d = self._date.date()
+        if self._has_time.isChecked():
+            t = self._clock.time()
+            return datetime(d.year(), d.month(), d.day(), t.hour(), t.minute()), True
+        return datetime(d.year(), d.month(), d.day()), False
+
+    def _on_save(self) -> None:
+        title = self._title.text().strip()
+        if not title:
+            return
+        due, has_time = self._due()
+        t = self._selected()
+        if t is None:
+            self.add_requested.emit(title, self._why.text().strip(), due, has_time)
+            self._new()
+        else:
+            self.edit_requested.emit(t.id, title, self._why.text().strip(), due, has_time)
+
+    def _on_focus(self) -> None:
+        t = self._selected()
+        running = self._running()
+        if running and t and running.task_id == t.id:
+            self.focus_stop_requested.emit()
+        elif t:
+            self.focus_requested.emit(t.id)
+
+    def _on_delete(self) -> None:
+        t = self._selected()
+        if t and QMessageBox.question(self, "Delete", f"Delete this Task for good?\n\n{t.title}") == QMessageBox.StandardButton.Yes:
+            self.delete_requested.emit(t.id)
+
+
 class RecapsView(QWidget):
     """Read-only list of Recaps, newest first. They fade on their own, so there is no editing."""
 
@@ -431,7 +661,7 @@ class RecapsView(QWidget):
 
 
 class MainWindow(QMainWindow):
-    """A sidebar of views. Tasks is a stand-in until that feature exists."""
+    """A sidebar of views."""
 
     presence_changed = Signal()  # shown, hidden, minimised or restored
 
@@ -444,6 +674,10 @@ class MainWindow(QMainWindow):
         self.conversation = ConversationView(face)
         self.memories = MemoriesView()
         self.recaps = RecapsView()
+        self.tasks = TasksView()
+        self._tasks: list[Task] = []
+        self._sessions: list[FocusSession] = []
+        self._strip_timer = QTimer(self, interval=1000, timeout=self._refresh_strip)
         self.conversation.save_log_requested.connect(self._save_log)
 
         pages = QStackedWidget()
@@ -465,9 +699,7 @@ class MainWindow(QMainWindow):
         entries = [
             ("Chat", self.conversation, None),
             ("Memories", self.memories, None),
-            ("Tasks", ComingSoon(
-                "Tasks & focus", "Plan small steps, run a focus timer, and get a gentle check-in.", "#4"
-            ), "Coming soon"),
+            ("Tasks", self.tasks, None),
             ("Recaps", self.recaps, None),
         ]
         for i, (caption, page, soon) in enumerate(entries):
@@ -488,6 +720,14 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._sidebar)
         layout.addWidget(pages, 1)
         self.setCentralWidget(root)
+
+    def show_tasks(self, tasks: list[Task], sessions: list[FocusSession]) -> None:
+        self._tasks, self._sessions = tasks, sessions
+        self.tasks.show_tasks(tasks, sessions)
+        self._refresh_strip()
+
+    def _refresh_strip(self) -> None:
+        self.conversation.set_strip(strip_text(self._tasks, self._sessions, datetime.now()))
 
     def _toggle_sidebar(self) -> None:
         collapsing = self._brand.isVisible()
@@ -510,10 +750,12 @@ class MainWindow(QMainWindow):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
+        self._strip_timer.start()
         self.presence_changed.emit()
 
     def hideEvent(self, event) -> None:
         super().hideEvent(event)
+        self._strip_timer.stop()
         self.presence_changed.emit()
 
     def changeEvent(self, event) -> None:

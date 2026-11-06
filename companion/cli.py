@@ -1,13 +1,15 @@
 from companion.app import bubbles as split_bubbles, build_companion
-from companion.companion import Companion, UnknownMemory
+from companion.companion import Companion, UnknownMemory, UnknownTask
 from companion.provider import ProviderError
-from companion.store import Memory, Store
+from companion.store import Memory, Store, Task
+from companion.tasks import format_due, parse_due, stamp_due
 
 SHOWN_ON_LAUNCH = 10
 HELP = (
     "Commands: /new  start a new Conversation, /recaps  list Recaps, /retry  resend unanswered Message, /quit\n"
     "Memories: /remember [#tag ...] text, /memories, /edit id text, /tag id [#tag ...], "
-    "/forget id, /confirm id"
+    "/forget id, /confirm id\n"
+    "Tasks: /task [due=YYYY-MM-DD[THH:MM]] title [| why], /tasks [all], /done id, /drop id"
 )
 USAGE = {
     "/remember": "Usage: /remember [#tag ...] text",
@@ -15,7 +17,13 @@ USAGE = {
     "/tag": "Usage: /tag id [#tag ...]",
     "/forget": "Usage: /forget id",
     "/confirm": "Usage: /confirm id",
+    "/task": "Usage: /task [due=YYYY-MM-DD[THH:MM]] title [| why]",
+    "/done": "Usage: /done id",
+    "/drop": "Usage: /drop id",
 }
+
+
+MEMORY_COMMANDS = ("/remember", "/edit", "/tag", "/forget", "/confirm")
 
 
 def bubbles(speaker: str, text: str) -> list[str]:
@@ -33,6 +41,54 @@ def show_recaps(companion: Companion, print_fn) -> None:
         print_fn(f"[{r.id}] {r.ended_at:%Y-%m-%d %H:%M} ({r.interface}){' [sensitive]' if r.sensitive else ''}: {r.text}")
     if not recaps:
         print_fn("No Recaps yet. One is written when a Conversation ends.")
+
+
+def format_task(c: Companion, t: Task) -> str:
+    status = "" if t.status == "open" else f" ({t.status})"
+    due = c.due_at(t)
+    overdue = " OVERDUE" if t.status == "open" and due and due <= c._now() else ""
+    why = f"  why: {t.why}" if t.why else ""
+    return f"[{t.id}] {t.title}{status}  {format_due(t.due, t.due_has_time)}{overdue}{why}"
+
+
+def task_command(companion: Companion, line: str, print_fn) -> bool:
+    """Run a Task command; False if the line is not one. The terminal never fires Reminders (ADR 0003)."""
+    command, _, rest = line.partition(" ")
+    rest = rest.strip()
+    if command == "/tasks":
+        found = companion.tasks(None if rest == "all" else "open")
+        for t in found:
+            print_fn(format_task(companion, t))
+        if not found:
+            print_fn("No open Tasks. Use /task to add one.")
+        return True
+    if command == "/task":
+        due, has_time = None, False
+        if rest.startswith("due="):
+            raw, _, rest = rest[4:].partition(" ")
+            parsed = parse_due(raw)
+            if parsed is None:
+                print_fn("Could not read that time. Use due=YYYY-MM-DD or due=YYYY-MM-DDTHH:MM.")
+                return True
+            due, has_time = parsed
+        title, _, why = rest.partition("|")
+        if not title.strip():
+            print_fn(USAGE[command])
+            return True
+        print_fn(format_task(companion, companion.add_task(title, why, due, has_time)))
+        return True
+    if command in ("/done", "/drop"):
+        if not rest.isdigit():
+            print_fn(USAGE[command])
+            return True
+        try:
+            (companion.complete_task if command == "/done" else companion.drop_task)(int(rest))
+        except UnknownTask:
+            print_fn(f"No Task with id {rest}.")
+            return True
+        print_fn(f"Task {rest} marked {'done' if command == '/done' else 'dropped'}.")
+        return True
+    return False
 
 
 def split_tags(words: list[str]) -> tuple[list[str], str]:
@@ -53,7 +109,7 @@ def memory_command(companion: Companion, line: str, print_fn) -> bool:
         if not found:
             print_fn("No Memories yet. Use /remember to add one.")
         return True
-    if command not in USAGE:
+    if command not in MEMORY_COMMANDS:
         return False
     try:
         if command == "/remember":
@@ -98,6 +154,11 @@ def run(companion: Companion, input_fn=input, print_fn=print) -> None:
                 print_fn(shown)
         print_fn("------------------------------------")
     print_fn(HELP)
+    overdue = companion.overdue_tasks()
+    if overdue:
+        print_fn("--- overdue Tasks ---")
+        for t in overdue:
+            print_fn(format_task(companion, t))
     if companion.has_unanswered_message():
         print_fn("(Your last Message has no reply yet. Use /retry to resend it.)")
 
@@ -122,7 +183,7 @@ def run(companion: Companion, input_fn=input, print_fn=print) -> None:
                 continue
             elif line == "/retry":
                 reply = companion.retry()
-            elif line.startswith("/") and memory_command(companion, line, print_fn):
+            elif line.startswith("/") and (task_command(companion, line, print_fn) or memory_command(companion, line, print_fn)):
                 continue
             else:
                 reply = companion.send(line)
@@ -131,6 +192,10 @@ def run(companion: Companion, input_fn=input, print_fn=print) -> None:
             continue
         for shown in bubbles("mochi", reply):
             print_fn(shown)
+        proposed = companion.last_task_proposal
+        if proposed:
+            due = f" due={stamp_due(proposed.due, proposed.has_time)}" if proposed.due else ""
+            print_fn(f"(mochi suggests a Task: /task{due} {proposed.title}{' | ' + proposed.why if proposed.why else ''})")
         noticed = companion.last_proposal
         if noticed:
             print_fn(

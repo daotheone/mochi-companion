@@ -30,3 +30,16 @@ def test_recap_fading_thresholds_default_and_can_be_set():
     assert (config.recap_max_days, config.recap_fresh_hours) == (3, 24)
     config = Config.load({"MOCHI_RECAP_MAX_DAYS": "5", "MOCHI_RECAP_FRESH_HOURS": "12"})
     assert (config.recap_max_days, config.recap_fresh_hours) == (5, 12)
+
+
+def test_task_settings_default_and_can_be_set():
+    c = Config.load({})
+    assert (c.focus_minutes, c.snooze_minutes, c.reminder_hour) == (25, 10, 9)
+    c = Config.load({"MOCHI_FOCUS_MINUTES": "50", "MOCHI_SNOOZE_MINUTES": "5", "MOCHI_REMINDER_HOUR": "0"})
+    assert (c.focus_minutes, c.snooze_minutes, c.reminder_hour) == (50, 5, 0)
+
+
+@pytest.mark.parametrize("key,bad", [("MOCHI_REMINDER_HOUR", "24"), ("MOCHI_REMINDER_HOUR", "x"), ("MOCHI_FOCUS_MINUTES", "0")])
+def test_invalid_task_settings_are_rejected(key, bad):
+    with pytest.raises(SystemExit):
+        Config.load({key: bad})

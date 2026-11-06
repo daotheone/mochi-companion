@@ -4,6 +4,7 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLay
 from companion.desktop import theme
 from companion.desktop.skin import BalloonSkin, SkinnedCard
 from companion.store import Memory
+from companion.tasks import TaskProposal, format_due
 
 WIDTH = 260
 BORDER = 2  # the plain card's stylesheet border; it shrinks the area the layout sees
@@ -14,7 +15,7 @@ FADE_MS = 1_000
 STYLE = """
 QFrame#card { background: %(panel)s; border: 2px solid %(border)s; border-radius: 16px; }
 QLabel { color: %(text)s; font-size: 14px; }
-QLabel#noticed { color: %(dim)s; font-size: 12px; }
+QLabel#noticed, QLabel#proposal { color: %(dim)s; font-size: 12px; }
 QPushButton {
     font-size: 12px; padding: 3px 12px; color: %(text)s; background: %(panel)s;
     border: 1.5px solid %(border)s; border-radius: 10px;
@@ -35,6 +36,9 @@ class SpeechBalloon(QWidget):
     retry_requested = Signal()
     confirm_requested = Signal(int)
     forget_requested = Signal(int)
+    task_add_requested = Signal(object)
+    notice_answered = Signal(object, str)
+    dismissed = Signal()  # hidden by any route; a waiting Reminder can take the spot
 
     def __init__(self):
         super().__init__()
@@ -64,6 +68,9 @@ class SpeechBalloon(QWidget):
             self._stack.setContentsMargins(skin.tile, skin.tile, skin.tile, skin.tile)
         self._pending: list[str] = []
         self._noticed: Memory | None = None
+        self._proposal: TaskProposal | None = None
+        self._noticed_row = None
+        self._sticky = False  # a Reminder or Check-in never fades
         self._pinned = False
         self._hovered = False
         self._reveal = QTimer(self, interval=BUBBLE_DELAY_MS, timeout=self._reveal_next)
@@ -73,10 +80,11 @@ class SpeechBalloon(QWidget):
         self._fade_anim.setEndValue(0.0)
         self._fade_anim.finished.connect(self.hide)
 
-    def show_reply(self, bubbles: list[str], noticed: Memory | None) -> None:
+    def show_reply(self, bubbles: list[str], noticed: Memory | None, proposal: TaskProposal | None = None) -> None:
         self._begin()
         self._pending = list(bubbles)
         self._noticed = noticed
+        self._proposal = proposal
         self._reveal_next()
         if self._pending:
             self._reveal.start()
@@ -94,6 +102,26 @@ class SpeechBalloon(QWidget):
         self._stack.addLayout(row)
         self._shown()
 
+    def show_notice(self, notice) -> None:
+        """A Reminder or Check-in: stays until answered."""
+        self._begin()
+        self._sticky = True
+        self._add_label(notice.text)
+        row = QHBoxLayout()
+        for action, caption in notice.actions:
+            button = QPushButton(caption)
+            button.show()
+            button.clicked.connect(lambda _=False, a=action: self.notice_answered.emit(notice, a))
+            button.clicked.connect(lambda _=False: self.hide())
+            row.addWidget(button)
+        row.addStretch()
+        self._stack.addLayout(row)
+        self._shown()
+
+    @property
+    def sticky_notice(self) -> bool:
+        return self._sticky and self.isVisible()
+
     def set_pinned(self, pinned: bool) -> None:
         """While pinned (Chat Box open) the Speech Balloon never fades."""
         self._pinned = pinned
@@ -104,6 +132,8 @@ class SpeechBalloon(QWidget):
         self._clear(self._stack)
         self._fade_anim.stop()
         self.setWindowOpacity(1.0)
+        self._sticky = False
+        self._proposal = None
 
     def _clear(self, layout) -> None:
         while layout.count():
@@ -127,6 +157,8 @@ class SpeechBalloon(QWidget):
             self._reveal.stop()
             if self._noticed:
                 self._add_noticed(self._noticed)
+            if self._proposal:
+                self._add_proposal(self._proposal)
             self._shown()
             self.finished.emit()
         else:
@@ -143,15 +175,37 @@ class SpeechBalloon(QWidget):
             row.addWidget(button)
         row.addStretch()
         self._stack.addLayout(row)
+        self._noticed_row = row
+
+    def _add_proposal(self, proposal: TaskProposal) -> None:
+        when = format_due(proposal.due, proposal.has_time)
+        self._add_label(f"task: {proposal.title} ({when})", "proposal")
+        row = QHBoxLayout()
+        for caption, signal in (("Add", self.task_add_requested), ("Dismiss", None)):
+            button = QPushButton(caption)
+            button.show()
+            if signal:
+                button.clicked.connect(lambda _=False, p=proposal: self.task_add_requested.emit(p))
+            button.clicked.connect(lambda _=False, r=row: self._drop_proposal(r))
+            row.addWidget(button)
+        row.addStretch()
+        self._stack.addLayout(row)
+
+    def _drop_proposal(self, row) -> None:
+        self._proposal = None
+        self._drop_row("proposal", row)
 
     def _drop_noticed(self) -> None:
         self._noticed = None
+        self._drop_row("noticed", self._noticed_row)
+
+    def _drop_row(self, label: str, row) -> None:
         for i in reversed(range(self._stack.count())):
             item = self._stack.itemAt(i)
-            if item.layout():
-                self._clear(item.layout())
+            if item.layout() is row:
+                self._clear(row)
                 self._stack.removeItem(item)
-            elif item.widget() and item.widget().objectName() == "noticed":
+            elif item.widget() and item.widget().objectName() == label:
                 item.widget().deleteLater()
                 self._stack.removeItem(item)
         self._shown()
@@ -173,7 +227,7 @@ class SpeechBalloon(QWidget):
 
     def _restart_fade(self) -> None:
         self._fade_timer.stop()
-        if self.isVisible() and not self._pinned and not self._hovered and not self._reveal.isActive():
+        if self.isVisible() and not self._pinned and not self._sticky and not self._hovered and not self._reveal.isActive():
             self._fade_timer.start()
 
     def _fade(self) -> None:
@@ -186,6 +240,7 @@ class SpeechBalloon(QWidget):
         self._pending = []
         self._fade_timer.stop()
         super().hideEvent(event)
+        self.dismissed.emit()
 
     def enterEvent(self, event) -> None:
         self._hovered = True

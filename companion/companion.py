@@ -1,18 +1,26 @@
 import re
 import sys
 import time
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Callable
 
-from companion.config import DEFAULT_MEMORY_LIMIT, DEFAULT_RECAP_FRESH_HOURS, DEFAULT_RECAP_MAX_DAYS
+from companion.config import (
+    DEFAULT_FOCUS_MINUTES, DEFAULT_MEMORY_LIMIT, DEFAULT_RECAP_FRESH_HOURS, DEFAULT_RECAP_MAX_DAYS,
+    DEFAULT_REMINDER_HOUR, DEFAULT_SNOOZE_MINUTES,
+)
 from companion.provider import ChatMessage, Provider, ProviderError
-from companion.store import Memory, Recap, Store, StoredMessage
+from companion.store import FocusSession, Memory, Recap, Store, StoredMessage, Task, _UNSET
+from companion.tasks import DEFAULT_LINES, TaskProposal, format_due, pick_line, split_task, stamp_due
 
 
 EXPRESSIONS = ("neutral", "happy", "sad", "smirk", "blush", "angry", "surprised", "laugh")
 NEUTRAL = "neutral"
 MEMORY_BUDGET_CHARS = 1600  # about 400 tokens
 CORE_TAG = "core"
+TASK_BUDGET_CHARS = 1600
+TASK_RECENT_HOURS = 24
+LATE_CHECKIN_HOURS = 3  # a Check-in this late is closed as finished, unanswered, instead of asked
 RECAP_RETRY_AFTER = timedelta(minutes=10)
 RECAPS_PER_PASS = 3  # a long absence does not trigger a pile of model calls
 RECAP_TRANSCRIPT_MESSAGES = 60
@@ -27,6 +35,27 @@ Output only the Recap."""
 
 class UnknownMemory(LookupError):
     """No Memory has the given id."""
+
+
+class UnknownTask(LookupError):
+    """No Task has the given id."""
+
+
+class FocusError(ValueError):
+    """A Focus Session cannot be started or changed that way."""
+
+
+@dataclass(frozen=True)
+class Notice:
+    """A Reminder or Check-in: an app event in Mochi's voice, not a Message, and never a model call."""
+
+    key: str  # changes whenever the Notice changes, so a UI can tell a new one from a redraw
+    kind: str  # "checkin" or "reminder"
+    text: str
+    expression: str
+    actions: tuple[tuple[str, str], ...]  # (action id, button caption)
+    session_id: int | None = None
+    task_ids: tuple[int, ...] = ()
 
 
 class Companion:
@@ -45,6 +74,10 @@ class Companion:
         clock: Callable[[], datetime] | None = None,
         recap_max_days: float = DEFAULT_RECAP_MAX_DAYS,
         recap_fresh_hours: float = DEFAULT_RECAP_FRESH_HOURS,
+        focus_minutes: int = DEFAULT_FOCUS_MINUTES,
+        snooze_minutes: int = DEFAULT_SNOOZE_MINUTES,
+        reminder_hour: int = DEFAULT_REMINDER_HOUR,
+        notice_lines: dict[str, list[str]] | None = None,
     ):
         self.store = store
         self.provider = provider
@@ -56,10 +89,15 @@ class Companion:
         self.clock = clock  # when set, the Persona is told the local time and the gap since the last Message
         self.recap_max_days = recap_max_days  # older Recaps stay listed but are not sent to the model
         self.recap_fresh_hours = recap_fresh_hours
+        self.focus_minutes = focus_minutes
+        self.snooze_minutes = snooze_minutes
+        self.reminder_hour = reminder_hour
+        self.notice_lines = notice_lines or DEFAULT_LINES
         self._recap_retry_at: datetime | None = None
         # A Conversation is only created by the first Message, so there are no empty ones.
         self.conversation_id: int | None = store.latest_conversation(interface) if resume else None
         self.last_proposal: Memory | None = None
+        self.last_task_proposal: TaskProposal | None = None
         self.last_expression = NEUTRAL
 
     def recent_messages(self, limit: int | None = None) -> list[StoredMessage]:
@@ -194,6 +232,214 @@ class Companion:
     def memories(self) -> list[Memory]:
         return self.store.list_memories()
 
+    # --- Tasks ---
+    def add_task(
+        self, title: str, why: str | None = None, due: datetime | None = None, has_time: bool = True,
+        conversation_id: int | None = None,
+    ) -> Task:
+        title = " ".join(title.split())
+        if not title:
+            raise ValueError("A Task needs a title.")
+        due = self._due(due, has_time)
+        return self.store.add_task(title, (why or "").strip() or None, due, conversation_id, self._now())
+
+    def accept_task(self, proposal: TaskProposal) -> Task:
+        """Save what Mochi proposed, linked to the Conversation it came from."""
+        return self.add_task(proposal.title, proposal.why, proposal.due, proposal.has_time, proposal.conversation_id)
+
+    @staticmethod
+    def _due(due: datetime | None, has_time: bool) -> str | None:
+        return stamp_due(due, has_time)
+
+    def tasks(self, status: str | None = None) -> list[Task]:
+        return self.store.list_tasks(status)
+
+    def edit_task(self, task_id: int, title=_UNSET, why=_UNSET, due=_UNSET, has_time: bool = True) -> None:
+        """Change the given fields; `why` and `due` may be None to clear them."""
+        fields = {}
+        if title is not _UNSET:
+            title = " ".join(title.split())
+            if not title:
+                raise ValueError("A Task needs a title.")
+            fields["title"] = title
+        if why is not _UNSET:
+            fields["why"] = (why or "").strip() or None
+        if due is not _UNSET:
+            fields["due"] = self._due(due, has_time)
+        self._require_task(self.store.update_task(task_id, **fields))
+
+    def complete_task(self, task_id: int) -> None:
+        self._require_task(self.store.set_task_status(task_id, "done", self._now()))
+
+    def drop_task(self, task_id: int) -> None:
+        self._require_task(self.store.set_task_status(task_id, "dropped", self._now()))
+
+    def delete_task(self, task_id: int) -> None:
+        self._require_task(self.store.delete_task(task_id))
+
+    @staticmethod
+    def _require_task(found: bool) -> None:
+        if not found:
+            raise UnknownTask("No such Task.")
+
+    def due_at(self, task: Task) -> datetime | None:
+        """When a Task is due for Reminders: a date with no clock time counts as the configured hour."""
+        if task.due is None:
+            return None
+        return task.due if task.due_has_time else task.due.replace(hour=self.reminder_hour, minute=0)
+
+    def overdue_tasks(self) -> list[Task]:
+        now = self._now()
+        return [t for t in self.tasks("open") if (due := self.due_at(t)) and due <= now]
+
+    def _urgency(self, task: Task):
+        due = self.due_at(task)
+        return (due is None, due or datetime.max, task.id)
+
+    def _task_block(self) -> str:
+        now = self._now()
+        lines, used, left_out = [], 0, 0
+        for task in sorted(self.tasks("open"), key=self._urgency):
+            line = self._task_line(task, now)
+            if used + len(line) > TASK_BUDGET_CHARS:
+                left_out += 1
+                continue
+            used += len(line)
+            lines.append(line)
+        if left_out:
+            lines.append(f"- (and {left_out} more open Task{'s' if left_out != 1 else ''} not shown)")
+        recent = [
+            f"- {t.status}, {format_age(now - t.closed_at)}: {t.title}"
+            for t in self.tasks()
+            if t.status != "open" and t.closed_at and now - t.closed_at <= timedelta(hours=TASK_RECENT_HOURS)
+        ]
+        running = self.running_focus()
+        parts = []
+        if lines:
+            parts.append("## Tasks (open, most urgent first)\n" + "\n".join(lines))
+        if recent:
+            parts.append("## Tasks finished or dropped in the last 24 hours\n" + "\n".join(recent))
+        if running:
+            state = "waiting for its Check-in" if running.ends_at <= now else f"ends {format_age(running.ends_at - now)}"
+            parts.append(
+                f"## Focus Session running\n- on \"{running.task_title}\", started {format_age(now - running.started_at)}, "
+                f"{running.planned_minutes} minutes planned, {state}"
+            )
+        return "\n\n" + "\n\n".join(parts) if parts else ""
+
+    def _task_line(self, task: Task, now: datetime) -> str:
+        due = self.due_at(task)
+        when = format_due(task.due, task.due_has_time)
+        status = f"{when}, overdue" if due and due <= now else when
+        why = f" (why: {task.why})" if task.why else ""
+        return f"- {task.title} [{status}]{why}"
+
+    # --- Focus Sessions ---
+    def running_focus(self) -> FocusSession | None:
+        self._close_stale_focus()
+        return self.store.running_focus_session()
+
+    def focus_history(self, task_id: int | None = None) -> list[FocusSession]:
+        return self.store.list_focus_sessions(task_id)
+
+    def start_focus(self, task_id: int) -> FocusSession:
+        """Start the one Focus Session on an open Task."""
+        task = self.store.get_task(task_id)
+        if task is None:
+            raise UnknownTask("No such Task.")
+        if task.status != "open":
+            raise FocusError("A Focus Session needs an open Task.")
+        if self.running_focus() is not None:
+            raise FocusError("A Focus Session is already running.")
+        now = self._now()
+        return self.store.add_focus_session(task, self.focus_minutes, now, now + timedelta(minutes=self.focus_minutes))
+
+    def stop_focus(self) -> None:
+        """Stop early: the Check-in comes at once, with Skip as an extra choice."""
+        session = self.running_focus()
+        if session is None or session.ends_at <= self._now():
+            return
+        self.store.update_focus_session(session.id, ends_at=self._now(), early=True)
+
+    def _close_stale_focus(self) -> None:
+        session = self.store.running_focus_session()
+        if session and self._now() - session.ends_at >= timedelta(hours=LATE_CHECKIN_HOURS):
+            self.store.update_focus_session(session.id, ended_at=session.ends_at, outcome="finished")
+
+    def answer_checkin(self, session_id: int, answer: str) -> None:
+        """`done`, `not_yet`, `snooze` or `skip`."""
+        session = self.store.get_focus_session(session_id)
+        if session is None or session.ended_at is not None:
+            return
+        now = self._now()
+        if answer == "snooze":
+            self.store.update_focus_session(
+                session.id, ends_at=now + timedelta(minutes=self.snooze_minutes), snoozes=session.snoozes + 1,
+                early=False,
+            )
+            return
+        if answer == "done":
+            self.store.set_task_status(session.task_id, "done", now)
+        outcome = "skipped" if answer == "skip" else "finished"
+        self.store.update_focus_session(session.id, ended_at=now, outcome=outcome, answered=True)
+
+    # --- Reminders and Check-ins ---
+    def pending_notice(self) -> Notice | None:
+        """What Mochi should say now, if anything: Check-ins before Reminders, several Reminders merged into one."""
+        now = self._now()
+        session = self.running_focus()
+        if session and session.ends_at <= now:
+            actions = [("done", "Task done"), ("not_yet", "Not done yet"), ("snooze", f"Snooze {self.snooze_minutes} min")]
+            if session.early:
+                actions.append(("skip", "Skip"))
+            text = pick_line(self.notice_lines["checkin"], session.id, title=session.task_title)
+            return Notice(
+                f"checkin:{session.id}:{session.ends_at.isoformat()}:{int(session.early)}", "checkin", text,
+                NEUTRAL, tuple(actions), session_id=session.id,
+            )
+        due, snoozed = [], False
+        for task in self.tasks("open"):
+            at = self.due_at(task)
+            if task.snooze_until is not None:
+                if task.snooze_until <= now:
+                    due.append(task)
+                    snoozed = True
+            elif at is not None and at <= now and task.reminded_for != stamp_due(task.due, task.due_has_time):
+                due.append(task)
+        if not due:
+            return None
+        due.sort(key=self._urgency)
+        ids = tuple(t.id for t in due)
+        actions = [("got_it", "Got it"), ("snooze", f"Snooze {self.snooze_minutes} min")]
+        if len(due) == 1:
+            if self.store.running_focus_session() is None:
+                actions.insert(0, ("focus", "Start focus"))
+            pool = self.notice_lines["reminder_snoozed" if snoozed else "reminder"]
+            text = pick_line(pool, due[0].id, title=due[0].title)
+        else:
+            shown = ", ".join(t.title for t in due[:3]) + ("…" if len(due) > 3 else "")
+            text = pick_line(self.notice_lines["reminder_group"], sum(ids), count=str(len(due)), titles=shown)
+        return Notice(
+            f"reminder:{','.join(map(str, ids))}:{int(snoozed)}", "reminder", text,
+            "angry" if snoozed else "surprised", tuple(actions), task_ids=ids,
+        )
+
+    def answer_notice(self, notice: Notice, action: str) -> None:
+        if notice.kind == "checkin":
+            if notice.session_id is not None:
+                self.answer_checkin(notice.session_id, action)
+            return
+        if action == "snooze":
+            until = self._now() + timedelta(minutes=self.snooze_minutes)
+            self.store.answer_reminder(list(notice.task_ids), until)
+            return
+        self.store.answer_reminder(list(notice.task_ids))
+        if action == "focus" and len(notice.task_ids) == 1:
+            try:
+                self.start_focus(notice.task_ids[0])
+            except (FocusError, UnknownTask):
+                pass
+
     def send(self, text: str) -> str:
         """Save the user's Message at once, then ask the provider. Raises ProviderError."""
         self.store.add_message(self.ensure_conversation(), "user", text, self._now())
@@ -211,7 +457,7 @@ class Companion:
         history = [ChatMessage(m.role, _with_marker(m)) for m in self.recent_messages()]
         system = (
             self.persona + self._memory_block(history[-1].content if history else "")
-            + self._now_block() + self._recap_block()
+            + self._now_block() + self._recap_block() + self._task_block()
         )
         started = time.monotonic()
         raw = self.provider.complete(system, history)
@@ -220,10 +466,12 @@ class Companion:
             file=sys.stderr,
         )
         text, expression = split_expression(strip_script_leak(raw))
+        text, task_proposal = split_task(text)
         reply, proposal = split_observation(text)
         if not reply:
             raise ProviderError("Mochi's reply was empty.")
         self.last_proposal = self._save_observation(proposal)
+        self.last_task_proposal = replace(task_proposal, conversation_id=self.ensure_conversation()) if task_proposal else None
         self.last_expression = expression
         self.store.add_message(self.ensure_conversation(), "assistant", reply, self._now(), expression)
         return reply

@@ -84,3 +84,28 @@ def test_observed_memory_is_announced_and_confirmable(tmp_path):
 def test_new_writes_a_recap_and_recaps_lists_it(tmp_path):
     out = drive(tmp_path / "m.db", FakeProvider(["hello", "Said hi. Nothing open."]), ["hi", "/new", "/recaps", "/quit"])
     assert "Said hi. Nothing open." in out
+
+
+def test_task_commands_end_to_end_across_restart(tmp_path):
+    db = tmp_path / "m.db"
+    out = drive(db, FakeProvider(), [
+        "/task due=2020-01-02T09:30 call mum | she asked",
+        "/task read",
+        "/task due=tomorrow nope",
+        "/done 2",
+        "/drop 9",
+        "/tasks",
+        "/quit",
+    ])
+    assert "[1] call mum" in out and "she asked" in out and "Thu 02 Jan 2020, 09:30 OVERDUE" in out
+    assert "Could not read that time" in out and "No Task with id 9." in out
+    out = drive(db, FakeProvider(), ["/tasks all", "/quit"])
+    assert "--- overdue Tasks ---" in out  # printed at launch
+    assert "[2] read (done)" in out
+
+
+def test_launch_prints_overdue_tasks_but_nothing_else_fires(tmp_path):
+    db = tmp_path / "m.db"
+    drive(db, FakeProvider(), ["/task due=2020-01-02 old one", "/quit"])
+    out = drive(db, FakeProvider(), ["/quit"])
+    assert "overdue Tasks" in out and "old one" in out
