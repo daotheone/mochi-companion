@@ -429,3 +429,96 @@ def test_toggling_with_the_main_window_open_leaves_the_portrait_expression(ui):
 def test_opening_the_main_window_on_a_neutral_face_starts_no_hold(ui):
     open_main(ui)
     assert not ui._expression_hold.isActive()
+
+
+def test_history_follows_new_messages(ui):
+    ui.main_window.resize(ui.main_window.minimumSize())
+    open_main(ui)
+    bar = ui.main_window.conversation._scroll.verticalScrollBar()
+    for i in range(8):
+        send_from_main(ui, f"reply {i}\nsecond line\nthird line")
+    QTest.qWait(30)
+    assert bar.maximum() > 0
+    assert bar.value() == bar.maximum()
+
+
+def test_a_notice_is_scrolled_into_view(ui):
+    ui.main_window.resize(ui.main_window.minimumSize())
+    open_main(ui)
+    for i in range(6):
+        send_from_main(ui, f"reply {i}\nsecond line\nthird line")
+    send_from_main(ui, NOTICING)
+    QTest.qWait(30)
+    bar = ui.main_window.conversation._scroll.verticalScrollBar()
+    assert bar.value() == bar.maximum()
+
+
+def test_reading_back_is_not_interrupted_by_resizing(ui):
+    ui.main_window.resize(ui.main_window.minimumSize())
+    open_main(ui)
+    for i in range(8):
+        send_from_main(ui, f"reply {i}\nsecond line\nthird line")
+    QTest.qWait(30)
+    bar = ui.main_window.conversation._scroll.verticalScrollBar()
+    bar.setValue(0)
+    ui.main_window.resize(700, 460)
+    QTest.qWait(30)
+    assert bar.value() == 0
+
+
+def test_sidebar_collapses_and_comes_back(ui):
+    open_main(ui)
+    window = ui.main_window
+    wide = window.conversation.width()
+    window.sidebar_toggle.click()
+    QTest.qWait(20)
+    assert not any(b.isVisible() for b in window.nav_buttons)
+    assert window.sidebar_toggle.isVisible()
+    assert window.conversation.width() > wide
+    window.sidebar_toggle.click()
+    QTest.qWait(20)
+    assert all(b.isVisible() for b in window.nav_buttons)
+    assert window.conversation.width() == wide
+
+
+def test_collapsing_the_sidebar_keeps_the_current_page(ui):
+    open_main(ui)
+    window = ui.main_window
+    window.nav_buttons[1].click()
+    window.sidebar_toggle.click()
+    QTest.qWait(20)
+    assert window.memories.isVisible()
+
+
+LONG_TEXT = "Người dùng thức khuya trò chuyện với Mochi và đùa về việc sẽ bị bỏ rơi. " * 12
+
+
+def show_long_page(ui, nav_index):
+    from datetime import datetime
+
+    from companion.store import Memory, Recap
+
+    window = ui.main_window
+    open_main(ui)
+    window.resize(860, 580)
+    window.recaps.show_recaps([Recap(i, i, "character", LONG_TEXT, False, datetime.now(), datetime.now()) for i in range(6)])
+    window.memories.show_memories([Memory(i, LONG_TEXT, (), "stated") for i in range(6)])
+    window.nav_buttons[nav_index].click()
+    QTest.qWait(30)
+    return window.recaps._list if nav_index == 3 else window.memories._list
+
+
+def assert_wraps_inside(view):
+    assert not view.horizontalScrollBar().isVisible()
+    assert view.horizontalScrollBar().maximum() == 0
+
+
+@pytest.mark.parametrize("nav_index", [1, 3], ids=["memories", "recaps"])
+def test_long_text_wraps_to_the_list_at_any_width(ui, nav_index):
+    view = show_long_page(ui, nav_index)
+    assert_wraps_inside(view)
+    tall = view.visualItemRect(view.item(0)).height()
+    ui.main_window.resize(640, 420)
+    QTest.qWait(30)
+    assert_wraps_inside(view)
+    assert view.visualItemRect(view.item(0)).height() > tall

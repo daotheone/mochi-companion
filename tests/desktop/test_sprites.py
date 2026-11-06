@@ -63,3 +63,23 @@ def test_local_map_without_every_expression_falls_back_to_the_bundled_one(tmp_pa
     local_map(tmp_path, monkeypatch, json.dumps(old_format))
     assert sprites.load_frame_map().sheet == FrameMap.load().sheet
     assert "bundled" in capsys.readouterr().err
+
+
+def alpha(fm, expression, x, y, qapp):
+    from PySide6.QtGui import QImage
+
+    col, row = fm.expression(expression).cells[0]
+    return QImage(str(fm.sheet)).pixelColor(col * 128 + x, row * 128 + y).alpha()
+
+
+@pytest.mark.parametrize(
+    "expression, x, y",
+    [("angry", 65, 73), ("surprised", 51, 57), ("surprised", 83, 58), ("happy", 61, 55), ("blush", 76, 113)],
+)
+def test_teeth_eyes_and_highlights_are_solid_on_any_background(qapp, expression, x, y):
+    assert alpha(FrameMap.load(), expression, x, y, qapp) == 255
+
+
+@pytest.mark.parametrize("expression, x, y", [("neutral", 78, 75), ("smirk", 78, 78), ("laugh", 85, 78)])
+def test_real_gaps_beside_her_neck_stay_see_through(qapp, expression, x, y):
+    assert alpha(FrameMap.load(), expression, x, y, qapp) == 0

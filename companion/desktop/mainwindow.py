@@ -1,13 +1,17 @@
-from PySide6.QtCore import QEvent, QTimer, Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (
-    QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
+    QAbstractItemView, QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineEdit, QListView, QListWidget, QListWidgetItem, QMainWindow,
     QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from companion.desktop import chatlog, theme
 from companion.desktop.face import Face
 from companion.store import Memory, Recap, StoredMessage
+
+
+SIDEBAR_WIDTH = 170
+SIDEBAR_COLLAPSED_WIDTH = 60
 
 
 def _split_tags(raw: str) -> list[str]:
@@ -20,6 +24,15 @@ def _button(text: str, name: str = "", tip: str = "") -> QPushButton:
     if tip:
         b.setToolTip(tip)
     return b
+
+
+def _wrapping_list() -> QListWidget:
+    """A list whose long items wrap to its width, and wrap again when the window is resized."""
+    view = QListWidget(wordWrap=True)
+    view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    view.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+    view.setResizeMode(QListView.ResizeMode.Adjust)
+    return view
 
 
 def _header(title: str, hint: str = "") -> QHBoxLayout:
@@ -98,6 +111,11 @@ class ConversationView(QWidget):
         self._scroll = QScrollArea(widgetResizable=True, frameShape=QFrame.Shape.NoFrame)
         self._scroll.setWidget(holder)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # The range only grows once the layout has run, so follow it instead of scrolling at a guessed moment.
+        self._at_bottom = True
+        bar = self._scroll.verticalScrollBar()
+        bar.rangeChanged.connect(self._follow)
+        bar.valueChanged.connect(lambda value: setattr(self, "_at_bottom", value == bar.maximum()))
         self._empty = QLabel("Chưa có tin nhắn nào.\nSay hi to Mochi", objectName="hint")
         self._empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -171,7 +189,7 @@ class ConversationView(QWidget):
             self._column.addWidget(self._bubble(m))
         self._empty.setVisible(not messages)
         self._scroll.setVisible(bool(messages))
-        QTimer.singleShot(0, self._to_bottom)
+        self._at_bottom = True
 
     def show_error(self, message: str) -> None:
         self._show_notice(message, [("Retry", self.retry_requested.emit)])
@@ -197,7 +215,7 @@ class ConversationView(QWidget):
         row.addStretch()
         column.addLayout(row)
         self._holder_layout.insertWidget(1, self._notice)
-        QTimer.singleShot(0, self._to_bottom)
+        self._at_bottom = True
 
     def clear_notice(self) -> None:
         if self._notice is not None:
@@ -205,9 +223,9 @@ class ConversationView(QWidget):
             self._notice.deleteLater()
             self._notice = None
 
-    def _to_bottom(self) -> None:
-        bar = self._scroll.verticalScrollBar()
-        bar.setValue(bar.maximum())
+    def _follow(self, _minimum: int, maximum: int) -> None:
+        if self._at_bottom:
+            self._scroll.verticalScrollBar().setValue(maximum)
 
     def set_busy(self, busy: bool) -> None:
         self._busy = busy
@@ -234,7 +252,7 @@ class MemoriesView(QWidget):
         self._memories: list[Memory] = []
         self._shown: list[Memory] = []
         self._filter = "all"
-        self._list = QListWidget()
+        self._list = _wrapping_list()
         self._list.setSpacing(0)
         self._text = QPlainTextEdit(placeholderText="What should Mochi remember?")
         self._tags = QLineEdit(placeholderText="Tags, e.g. study food")
@@ -368,8 +386,7 @@ class RecapsView(QWidget):
     def __init__(self):
         super().__init__(objectName="page")
         self._recaps: list[Recap] = []
-        self._list = QListWidget()
-        self._list.setWordWrap(True)
+        self._list = _wrapping_list()
         self._empty = QLabel(
             "No Recaps yet.\nOne is written when a Conversation ends.",
             objectName="hint", alignment=Qt.AlignmentFlag.AlignCenter,
@@ -430,11 +447,19 @@ class MainWindow(QMainWindow):
         self.conversation.save_log_requested.connect(self._save_log)
 
         pages = QStackedWidget()
-        sidebar = QWidget(objectName="sidebar")
-        sidebar.setFixedWidth(170)
-        side = QVBoxLayout(sidebar)
+        self._sidebar = QWidget(objectName="sidebar")
+        self._sidebar.setFixedWidth(SIDEBAR_WIDTH)
+        side = QVBoxLayout(self._sidebar)
         side.setContentsMargins(10, 14, 10, 14)
-        side.addWidget(QLabel("Mochi", objectName="brand"))
+        self._brand = QLabel("Mochi", objectName="brand")
+        self.sidebar_toggle = _button("☰", "icon", "Hide sidebar")
+        self.sidebar_toggle.clicked.connect(self._toggle_sidebar)
+        top = QHBoxLayout()
+        top.addWidget(self._brand)
+        top.addStretch()
+        top.addWidget(self.sidebar_toggle)
+        side.addLayout(top)
+        self.nav_buttons: list[QPushButton] = []
         group = QButtonGroup(self)
         group.setExclusive(True)
         entries = [
@@ -453,15 +478,23 @@ class MainWindow(QMainWindow):
             button.clicked.connect(lambda _=False, i=i: pages.setCurrentIndex(i))
             group.addButton(button)
             side.addWidget(button)
+            self.nav_buttons.append(button)
         side.addStretch()
 
         root = QWidget(objectName="root")
         layout = QHBoxLayout(root)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(sidebar)
+        layout.addWidget(self._sidebar)
         layout.addWidget(pages, 1)
         self.setCentralWidget(root)
+
+    def _toggle_sidebar(self) -> None:
+        collapsing = self._brand.isVisible()
+        for widget in (self._brand, *self.nav_buttons):
+            widget.setVisible(not collapsing)
+        self._sidebar.setFixedWidth(SIDEBAR_COLLAPSED_WIDTH if collapsing else SIDEBAR_WIDTH)
+        self.sidebar_toggle.setToolTip("Show sidebar" if collapsing else "Hide sidebar")
 
     def _save_log(self) -> None:
         messages = self.conversation.messages()
