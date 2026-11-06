@@ -1,6 +1,8 @@
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QLineEdit, QVBoxLayout, QWidget
 
+from companion.desktop.theme import CHATBOX_STYLE
+
 
 class ChatBox(QWidget):
     """The small input under the Character. Esc closes it."""
@@ -13,13 +15,11 @@ class ChatBox(QWidget):
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool
         )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)  # no square corners behind the rounded input
         self.setFixedWidth(width)
         self._input = QLineEdit(self)
         self._input.setPlaceholderText("Nói với Mochi…")
-        self._input.setStyleSheet(
-            "QLineEdit { background: white; color: #3b2f2f; border: 2px solid #d9c7b8;"
-            " border-radius: 12px; padding: 6px 10px; font-size: 14px; }"
-        )
+        self._input.setStyleSheet(CHATBOX_STYLE)
         self._input.returnPressed.connect(self._submit)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)

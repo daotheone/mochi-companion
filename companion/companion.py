@@ -1,4 +1,6 @@
 import re
+from datetime import datetime
+from typing import Callable
 
 from companion.config import DEFAULT_MEMORY_LIMIT
 from companion.provider import ChatMessage, Provider, ProviderError
@@ -26,6 +28,7 @@ class Companion:
         memory_budget: int = MEMORY_BUDGET_CHARS,
         interface: str = "terminal",
         resume: bool = True,
+        clock: Callable[[], datetime] | None = None,
     ):
         self.store = store
         self.provider = provider
@@ -34,6 +37,7 @@ class Companion:
         self.memory_limit = memory_limit
         self.memory_budget = memory_budget
         self.interface = interface
+        self.clock = clock  # when set, the Persona is told the local time
         # A Conversation is only created by the first Message, so there are no empty ones.
         self.conversation_id: int | None = store.latest_conversation(interface) if resume else None
         self.last_proposal: Memory | None = None
@@ -97,6 +101,11 @@ class Companion:
             return None
         return self.store.add_memory(text, _clean_tags(tags), "observed")
 
+    def _now_block(self) -> str:
+        if self.clock is None:
+            return ""
+        return f"\n\n## Now\nLocal time: {self.clock():%A %Y-%m-%d %H:%M}"
+
     def memories(self) -> list[Memory]:
         return self.store.list_memories()
 
@@ -113,7 +122,7 @@ class Companion:
 
     def _reply(self) -> str:
         history = [ChatMessage(m.role, m.content) for m in self.recent_messages()]
-        system = self.persona + self._memory_block(history[-1].content if history else "")
+        system = self.persona + self._memory_block(history[-1].content if history else "") + self._now_block()
         reply, proposal = split_observation(self.provider.complete(system, history))
         if not reply:
             raise ProviderError("Mochi's reply was empty.")

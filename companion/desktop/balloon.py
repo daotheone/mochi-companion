@@ -1,6 +1,7 @@
 from PySide6.QtCore import QPropertyAnimation, QTimer, Qt, Signal
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
+from companion.desktop import theme
 from companion.desktop.skin import BalloonSkin, SkinnedCard
 from companion.store import Memory
 
@@ -11,11 +12,18 @@ FADE_AFTER_MS = 30_000
 FADE_MS = 1_000
 
 STYLE = """
-QFrame#card { background: white; border: 2px solid #d9c7b8; border-radius: 14px; }
+QFrame#card { background: %(panel)s; border: 2px solid %(border)s; border-radius: 16px; }
 QLabel { color: %(text)s; font-size: 14px; }
 QLabel#noticed { color: %(dim)s; font-size: 12px; }
-QPushButton { font-size: 12px; padding: 2px 8px; }
+QPushButton {
+    font-size: 12px; padding: 3px 12px; color: %(text)s; background: %(panel)s;
+    border: 1.5px solid %(border)s; border-radius: 10px;
+}
+QPushButton:hover { border-color: %(accent)s; color: %(accent)s; }
 """
+PLAIN = {
+    "text": theme.INK, "dim": theme.DIM, "panel": theme.PANEL, "border": theme.BORDER, "accent": theme.ACCENT,
+}
 
 
 class SpeechBalloon(QWidget):
@@ -42,11 +50,11 @@ class SpeechBalloon(QWidget):
         if skin:
             card = SkinnedCard(skin)
             self._inset = 0  # the skin is painted, not a stylesheet border
-            self.setStyleSheet(STYLE % {"text": skin.text_color, "dim": skin.text_color})
+            self.setStyleSheet(STYLE % {**PLAIN, "text": skin.text_color, "dim": skin.text_color})
         else:
             card = QFrame(objectName="card")
             self._inset = BORDER
-            self.setStyleSheet(STYLE % {"text": "#3b2f2f", "dim": "#7a6a60"})
+            self.setStyleSheet(STYLE % PLAIN)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(card)

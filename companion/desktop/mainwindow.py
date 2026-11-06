@@ -1,11 +1,10 @@
-from html import escape
-
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
-    QPlainTextEdit, QPushButton, QTabWidget, QTextBrowser, QVBoxLayout, QWidget,
+    QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow,
+    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
 )
 
+from companion.desktop import chatlog, theme
 from companion.store import Memory, StoredMessage
 
 
@@ -13,43 +12,151 @@ def _split_tags(raw: str) -> list[str]:
     return [t for t in raw.replace(",", " ").split() if t.strip("#")]
 
 
+def _button(text: str, name: str = "", tip: str = "") -> QPushButton:
+    b = QPushButton(text, objectName=name)
+    b.setCursor(Qt.CursorShape.PointingHandCursor)
+    if tip:
+        b.setToolTip(tip)
+    return b
+
+
+def _header(title: str, hint: str = "") -> QHBoxLayout:
+    row = QHBoxLayout()
+    column = QVBoxLayout()
+    column.setSpacing(0)
+    column.addWidget(QLabel(title, objectName="title"))
+    if hint:
+        column.addWidget(QLabel(hint, objectName="hint"))
+    row.addLayout(column)
+    row.addStretch()
+    return row
+
+
+class ComingSoon(QWidget):
+    """Stand-in for a feature that does not exist yet."""
+
+    def __init__(self, title: str, text: str, issue: str):
+        super().__init__(objectName="page")
+        card = QFrame(objectName="soon")
+        inner = QVBoxLayout(card)
+        inner.setContentsMargins(32, 32, 32, 32)
+        inner.setSpacing(6)
+        for widget in (
+            QLabel(title, objectName="title"),
+            QLabel(text, objectName="hint", wordWrap=True),
+            QLabel(f"Coming soon · {issue}", objectName="hint"),
+        ):
+            widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            inner.addWidget(widget)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(28, 28, 28, 28)
+        layout.addStretch()
+        layout.addWidget(card)
+        layout.addStretch()
+
+
 class ConversationView(QWidget):
     send_requested = Signal(str)
     new_requested = Signal()
+    save_log_requested = Signal()
 
     def __init__(self):
-        super().__init__()
-        self._log = QTextBrowser()
+        super().__init__(objectName="page")
+        self._messages: list[StoredMessage] = []
+        self._busy = False
+
+        self._column = QVBoxLayout()
+        self._column.setSpacing(8)
+        self._column.setContentsMargins(0, 0, 8, 0)
+        holder = QWidget(objectName="page")
+        holder_layout = QVBoxLayout(holder)
+        holder_layout.setContentsMargins(0, 0, 0, 0)
+        holder_layout.addLayout(self._column)
+        holder_layout.addStretch()
+        self._scroll = QScrollArea(widgetResizable=True, frameShape=QFrame.Shape.NoFrame)
+        self._scroll.setWidget(holder)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._empty = QLabel("Chưa có tin nhắn nào.\nSay hi to Mochi", objectName="hint")
+        self._empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
         self._input = QLineEdit(placeholderText="Nói với Mochi…")
-        self._send = QPushButton("Send")
-        new = QPushButton("New Conversation")
+        self._send = _button("Send", "primary")
+        mic = _button("Voice", "icon", "Voice: coming soon")
+        mic.setEnabled(False)
         self._input.returnPressed.connect(self._submit)
         self._send.clicked.connect(self._submit)
+
+        header = _header("Chat", "Your current Conversation")
+        history = _button("History", tip="Continue a past Conversation: coming soon")
+        history.setEnabled(False)
+        save = _button("Save log", tip="Save this Conversation as Markdown in chat_logs/")
+        new = _button("New", tip="Start a new Conversation")
+        save.clicked.connect(self.save_log_requested.emit)
         new.clicked.connect(self.new_requested.emit)
+        for b in (history, save, new):
+            header.addWidget(b)
+
         row = QHBoxLayout()
-        row.addWidget(self._input)
+        row.addWidget(mic)
+        row.addWidget(self._input, 1)
         row.addWidget(self._send)
-        row.addWidget(new)
         layout = QVBoxLayout(self)
-        layout.addWidget(self._log)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+        layout.addLayout(header)
+        layout.addWidget(self._empty, 1)
+        layout.addWidget(self._scroll, 1)
         layout.addLayout(row)
+        self._empty.show()
+        self._scroll.hide()
+
+    def messages(self) -> list[StoredMessage]:
+        return self._messages
+
+    def _bubble(self, m: StoredMessage) -> QWidget:
+        mine = m.role == "user"
+        label = QLabel("\n".join(line for line in m.content.splitlines() if line.strip()), wordWrap=True)
+        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        label.setMaximumWidth(460)
+        label.setStyleSheet(
+            f"background: {theme.ACCENT if mine else theme.PANEL}; color: {'white' if mine else theme.INK};"
+            f"border: 1.5px solid {theme.ACCENT if mine else theme.BORDER}; border-radius: 16px; padding: 9px 14px;"
+        )
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        if mine:
+            layout.addStretch()
+        layout.addWidget(label)
+        if not mine:
+            layout.addStretch()
+        return row
 
     def show_messages(self, messages: list[StoredMessage]) -> None:
-        parts = []
+        self._messages = messages
+        while self._column.count():
+            item = self._column.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
         for m in messages:
-            who, colour = ("you", "#555") if m.role == "user" else ("mochi", "#a0522d")
-            body = "<br>".join(escape(line) for line in m.content.splitlines() if line.strip())
-            parts.append(f'<p><b style="color:{colour}">{who}</b><br>{body}</p>')
-        self._log.setHtml("".join(parts) or "<p><i>No Messages yet in this Conversation.</i></p>")
-        self._log.verticalScrollBar().setValue(self._log.verticalScrollBar().maximum())
+            self._column.addWidget(self._bubble(m))
+        self._empty.setVisible(not messages)
+        self._scroll.setVisible(bool(messages))
+        QTimer.singleShot(0, self._to_bottom)
+
+    def _to_bottom(self) -> None:
+        bar = self._scroll.verticalScrollBar()
+        bar.setValue(bar.maximum())
 
     def set_busy(self, busy: bool) -> None:
+        self._busy = busy
         self._send.setEnabled(not busy)
         self._input.setReadOnly(busy)
+        self._input.setPlaceholderText("Mochi đang nghĩ…" if busy else "Nói với Mochi…")
 
     def _submit(self) -> None:
         text = self._input.text().strip()
-        if text and self._send.isEnabled():
+        if text and not self._busy:
             self._input.clear()
             self.send_requested.emit(text)
 
@@ -62,64 +169,114 @@ class MemoriesView(QWidget):
     forget_requested = Signal(int)
 
     def __init__(self):
-        super().__init__()
+        super().__init__(objectName="page")
         self._memories: list[Memory] = []
+        self._shown: list[Memory] = []
+        self._filter = "all"
         self._list = QListWidget()
+        self._list.setSpacing(0)
         self._text = QPlainTextEdit(placeholderText="What should Mochi remember?")
         self._tags = QLineEdit(placeholderText="Tags, e.g. study food")
-        self._note = QLabel(wordWrap=True)
-        self._save = QPushButton("Save")
-        self._confirm = QPushButton("Confirm")
-        self._forget = QPushButton("Forget")
-        new = QPushButton("New Memory")
+        self._note = QLabel(wordWrap=True, objectName="note")
+        self._save = _button("Save", "primary")
+        self._confirm = _button("Confirm", tip="Keep this as something you told Mochi")
+        self._forget = _button("Forget", "danger")
+        new = _button("+ New Memory", "primary")
+        self._empty = QLabel("Nothing here yet.", objectName="hint", alignment=Qt.AlignmentFlag.AlignCenter)
+
+        self._chips: dict[str, QPushButton] = {}
+        group = QButtonGroup(self)
+        chips = QHBoxLayout()
+        for key, caption in (("all", "All"), ("stated", "Stated"), ("observed", "Observed")):
+            chip = _button(caption, "chip")
+            chip.setCheckable(True)
+            chip.setChecked(key == "all")
+            group.addButton(chip)
+            chip.clicked.connect(lambda _=False, k=key: self._set_filter(k))
+            chips.addWidget(chip)
+            self._chips[key] = chip
+        chips.addStretch()
+
         self._list.currentRowChanged.connect(self._select)
         self._save.clicked.connect(self._on_save)
         self._confirm.clicked.connect(lambda: self.confirm_requested.emit(self._selected().id))
         self._forget.clicked.connect(self._on_forget)
-        new.clicked.connect(lambda: self._list.setCurrentRow(-1))
-        form = QVBoxLayout()
-        form.addWidget(self._text)
-        form.addWidget(self._tags)
-        form.addWidget(self._note)
+        new.clicked.connect(self._new)
+
+        header = _header("Memories", "What Mochi remembers about you")
+        header.addWidget(new)
+
+        form = QFrame(objectName="card")
+        form_layout = QVBoxLayout(form)
+        form_layout.setContentsMargins(14, 14, 14, 14)
+        form_layout.addWidget(self._text)
+        form_layout.addWidget(self._tags)
+        form_layout.addWidget(self._note)
         buttons = QHBoxLayout()
-        for b in (self._save, self._confirm, self._forget):
-            buttons.addWidget(b)
-        form.addLayout(buttons)
+        buttons.addWidget(self._save)
+        buttons.addWidget(self._confirm)
+        buttons.addStretch()
+        buttons.addWidget(self._forget)
+        form_layout.addLayout(buttons)
+
         left = QVBoxLayout()
-        left.addWidget(self._list)
-        left.addWidget(new)
-        layout = QHBoxLayout(self)
-        layout.addLayout(left, 1)
-        layout.addLayout(form, 1)
+        left.addLayout(chips)
+        left.addWidget(self._list, 1)
+        left.addWidget(self._empty, 1)
+        body = QHBoxLayout()
+        body.setSpacing(16)
+        body.addLayout(left, 5)
+        body.addWidget(form, 4, Qt.AlignmentFlag.AlignTop)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+        layout.addLayout(header)
+        layout.addLayout(body, 1)
         self._select(-1)
+
+    def _set_filter(self, key: str) -> None:
+        self._filter = key
+        self.show_memories(self._memories)
+
+    def _new(self) -> None:
+        self._list.setCurrentRow(-1)
+        self._select(-1)
+        self._text.setFocus()
 
     def show_memories(self, memories: list[Memory]) -> None:
         keep = self._selected().id if self._selected() else None
         self._memories = memories
+        counts = {"all": len(memories)}
+        for kind in ("stated", "observed"):
+            counts[kind] = sum(m.kind == kind for m in memories)
+        for key, chip in self._chips.items():
+            chip.setText(f"{key.capitalize()} · {counts[key]}")
+        self._shown = [m for m in memories if self._filter in ("all", m.kind)]
         self._list.blockSignals(True)
         self._list.clear()
-        for m in memories:
-            tags = "".join(f" #{t}" for t in m.tags)
-            item = QListWidgetItem(f"[{m.kind}]{tags}  {m.text}")
-            if m.kind == "observed":
-                item.setForeground(Qt.GlobalColor.darkYellow)
+        for m in self._shown:
+            tags = " ".join(f"#{t}" for t in m.tags)
+            badge = "Mochi noticed" if m.kind == "observed" else "Stated"
+            item = QListWidgetItem(f"{m.text}\n{badge}" + (f"  ·  {tags}" if tags else ""))
             self._list.addItem(item)
-        row = next((i for i, m in enumerate(memories) if m.id == keep), -1)
+        row = next((i for i, m in enumerate(self._shown) if m.id == keep), -1)
         self._list.setCurrentRow(row)
         self._list.blockSignals(False)
+        self._empty.setVisible(not self._shown)
+        self._list.setVisible(bool(self._shown))
         self._select(row)
 
     def _selected(self) -> Memory | None:
         row = self._list.currentRow()
-        return self._memories[row] if 0 <= row < len(self._memories) else None
+        return self._shown[row] if 0 <= row < len(self._shown) else None
 
     def _select(self, _row: int) -> None:
         m = self._selected()
         self._text.setPlainText(m.text if m else "")
         self._tags.setText(" ".join(f"#{t}" for t in m.tags) if m else "")
         self._confirm.setVisible(bool(m and m.kind == "observed"))
-        self._forget.setEnabled(m is not None)
-        self._save.setText("Save" if m else "Add")
+        self._forget.setVisible(m is not None)
+        self._save.setText("Save" if m else "Add Memory")
         self._note.setText(
             "Mochi noticed this. Saving an edit also Confirms it." if m and m.kind == "observed" else ""
         )
@@ -143,18 +300,61 @@ class MemoriesView(QWidget):
 
 
 class MainWindow(QMainWindow):
-    """Conversation and Memories. A Recaps view is added once Recaps exist."""
+    """A sidebar of views. Tasks and Recaps are stand-ins until those features exist."""
 
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Mochi")
-        self.resize(720, 520)
+        self.resize(860, 580)
+        self.setMinimumSize(640, 420)
+        self.setStyleSheet(theme.STYLE)
         self.conversation = ConversationView()
         self.memories = MemoriesView()
-        tabs = QTabWidget()
-        tabs.addTab(self.conversation, "Conversation")
-        tabs.addTab(self.memories, "Memories")
-        self.setCentralWidget(tabs)
+        self.conversation.save_log_requested.connect(self._save_log)
+
+        pages = QStackedWidget()
+        sidebar = QWidget(objectName="sidebar")
+        sidebar.setFixedWidth(170)
+        side = QVBoxLayout(sidebar)
+        side.setContentsMargins(10, 14, 10, 14)
+        side.addWidget(QLabel("Mochi", objectName="brand"))
+        group = QButtonGroup(self)
+        group.setExclusive(True)
+        entries = [
+            ("Chat", self.conversation, None),
+            ("Memories", self.memories, None),
+            ("Tasks", ComingSoon(
+                "Tasks & focus", "Plan small steps, run a focus timer, and get a gentle check-in.", "#4"
+            ), "Coming soon"),
+            ("Recaps", ComingSoon(
+                "Recaps", "Short notes of past Conversations, so Mochi remembers how things were left.", "#8"
+            ), "Coming soon"),
+        ]
+        for i, (caption, page, soon) in enumerate(entries):
+            pages.addWidget(page)
+            button = _button(caption + ("  ·  soon" if soon else ""), "nav")
+            button.setCheckable(True)
+            button.setChecked(i == 0)
+            button.clicked.connect(lambda _=False, i=i: pages.setCurrentIndex(i))
+            group.addButton(button)
+            side.addWidget(button)
+        side.addStretch()
+
+        root = QWidget(objectName="root")
+        layout = QHBoxLayout(root)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(sidebar)
+        layout.addWidget(pages, 1)
+        self.setCentralWidget(root)
+
+    def _save_log(self) -> None:
+        messages = self.conversation.messages()
+        if not messages:
+            self.statusBar().showMessage("Nothing to save yet.", 4000)
+            return
+        path = chatlog.save(messages)
+        self.statusBar().showMessage(f"Saved {path}", 6000)
 
     def open(self) -> None:
         self.show()

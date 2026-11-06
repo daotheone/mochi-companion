@@ -1,4 +1,5 @@
 import sys
+from datetime import datetime
 
 from companion.companion import Companion
 from companion.config import Config
@@ -24,6 +25,6 @@ def build_companion(interface: str, resume: bool) -> tuple[Companion, Store]:
     provider = DeepSeekProvider(config.api_key, config.model, log_usage=True)
     companion = Companion(
         store, provider, persona, config.history_limit, config.memory_limit,
-        interface=interface, resume=resume,
+        interface=interface, resume=resume, clock=datetime.now,
     )
     return companion, store
