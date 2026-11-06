@@ -8,7 +8,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -23,9 +23,24 @@ from companion.store import Store
 DEFAULT_MODELS = "deepseek-flash"
 
 
+NOW = datetime(2026, 11, 6, 21, 0)  # fixed, so a case's Recap ages are exactly as written
+
+
+def add_recaps(companion: Companion, recaps: list[dict]) -> None:
+    """Seed earlier, already-recapped Conversations that ended `age_hours` before NOW."""
+    for recap in recaps:
+        ended = NOW - timedelta(hours=recap["age_hours"])
+        conversation = companion.store.new_conversation("character", ended)
+        companion.store.add_message(conversation, "user", "(earlier)", ended)
+        companion.store.add_message(conversation, "assistant", "(earlier)", ended)
+        companion.store.add_recap(conversation, recap["text"], recap.get("sensitive", False), ended)
+
+
 def run_case(case: dict, persona: str, api_key: str | None, model: str) -> str:
-    companion = Companion(Store(":memory:"), DeepSeekProvider(api_key, model), persona)
+    clock = (lambda: NOW) if "recaps" in case else None
+    companion = Companion(Store(":memory:"), DeepSeekProvider(api_key, model), persona, clock=clock)
     try:
+        add_recaps(companion, case.get("recaps", []))
         for memory in case.get("memories", []):
             companion.store.add_memory(memory["text"], memory.get("tags", []), memory.get("kind", "stated"))
         *earlier, last = [m if isinstance(m, dict) else {"role": "user", "content": m} for m in case["messages"]]
@@ -60,6 +75,8 @@ def main() -> None:
         lines += [f"## {case['id']}", f"_{case['note']}_", ""]
         for memory in case.get("memories", []):
             lines.append(f"- Memory ({memory.get('kind', 'stated')}): {memory['text']}")
+        for recap in case.get("recaps", []):
+            lines.append(f"- Recap ({recap['age_hours']}h old{', sensitive' if recap.get('sensitive') else ''}): {recap['text']}")
         lines += ["", "User:", "```text", *(m if isinstance(m, str) else f"{m['role']}: {m['content']}" for m in case["messages"]), "```", ""]
         for model in models:
             reply = run_case(case, persona, api_key, model)

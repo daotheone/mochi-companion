@@ -1,14 +1,24 @@
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable
 
-from companion.config import DEFAULT_MEMORY_LIMIT
+from companion.config import DEFAULT_MEMORY_LIMIT, DEFAULT_RECAP_FRESH_HOURS, DEFAULT_RECAP_MAX_DAYS
 from companion.provider import ChatMessage, Provider, ProviderError
-from companion.store import Memory, Store, StoredMessage
+from companion.store import Memory, Recap, Store, StoredMessage
 
 
 MEMORY_BUDGET_CHARS = 1600  # about 400 tokens
 CORE_TAG = "core"
+RECAP_RETRY_AFTER = timedelta(minutes=10)
+RECAPS_PER_PASS = 3  # a long absence does not trigger a pile of model calls
+RECAP_TRANSCRIPT_MESSAGES = 60
+SENSITIVE_MARKER = "[sensitive]"
+RECAP_INSTRUCTIONS = f"""You write a Recap: a brief note that Mochi, a companion, keeps about a finished Conversation with the user.
+Write 1-3 plain sentences, in the language the user mostly used. Say what happened and whether anything was left unresolved.
+If a problem was fixed or a question answered, say so plainly (for example "Fixed: ...") so it is not mistaken for an open problem.
+If something is still open, say what. Do not add advice, quotes or opinions, and invent nothing.
+If the Conversation touched something vulnerable (a bad night, grief, distress, self-harm), start with the line {SENSITIVE_MARKER} on its own, then the Recap.
+Output only the Recap."""
 
 
 class UnknownMemory(LookupError):
@@ -29,6 +39,8 @@ class Companion:
         interface: str = "terminal",
         resume: bool = True,
         clock: Callable[[], datetime] | None = None,
+        recap_max_days: float = DEFAULT_RECAP_MAX_DAYS,
+        recap_fresh_hours: float = DEFAULT_RECAP_FRESH_HOURS,
     ):
         self.store = store
         self.provider = provider
@@ -37,7 +49,10 @@ class Companion:
         self.memory_limit = memory_limit
         self.memory_budget = memory_budget
         self.interface = interface
-        self.clock = clock  # when set, the Persona is told the local time
+        self.clock = clock  # when set, the Persona is told the local time and the gap since the last Message
+        self.recap_max_days = recap_max_days  # older Recaps stay listed but are not sent to the model
+        self.recap_fresh_hours = recap_fresh_hours
+        self._recap_retry_at: datetime | None = None
         # A Conversation is only created by the first Message, so there are no empty ones.
         self.conversation_id: int | None = store.latest_conversation(interface) if resume else None
         self.last_proposal: Memory | None = None
@@ -48,8 +63,49 @@ class Companion:
         return self.store.recent_messages(self.conversation_id, self.history_limit if limit is None else limit)
 
     def new_conversation(self) -> None:
-        """Leave the current Conversation; the next Message starts a fresh one."""
+        """Leave the current Conversation; the next Message starts a fresh one.
+
+        Its Recap is written by `write_recaps`, which the caller runs when it can afford a model call.
+        """
         self.conversation_id = None
+
+    def _now(self) -> datetime:
+        return self.clock() if self.clock else datetime.now()
+
+    def recaps(self) -> list[Recap]:
+        return self.store.list_recaps()
+
+    def delete_recap(self, recap_id: int) -> None:
+        self.store.delete_recap(recap_id)
+
+    def write_recaps(self) -> int:
+        """Recap every ended Conversation that lacks one; returns how many were written.
+
+        A failing provider is never an error here: the Recap is simply tried again later.
+        """
+        now = self._now()
+        ended = self.store.ended_conversations(self.conversation_id, now - timedelta(days=self.recap_max_days))
+        written = 0
+        for conversation in ended[-RECAPS_PER_PASS:]:
+            try:
+                text, sensitive = self._summarise(conversation.id)
+            except ProviderError:
+                self._recap_retry_at = now + RECAP_RETRY_AFTER
+                break
+            self.store.add_recap(conversation.id, text, sensitive, now)
+            written += 1
+        return written
+
+    def _summarise(self, conversation_id: int) -> tuple[str, bool]:
+        messages = self.store.recent_messages(conversation_id, RECAP_TRANSCRIPT_MESSAGES)
+        transcript = "\n".join(f"{'user' if m.role == 'user' else 'Mochi'}: {m.content}" for m in messages)
+        text = self.provider.complete(RECAP_INSTRUCTIONS, [ChatMessage("user", transcript)]).strip()
+        sensitive = text.casefold().startswith(SENSITIVE_MARKER)
+        if sensitive:
+            text = text[len(SENSITIVE_MARKER):].strip()
+        if not text:
+            raise ProviderError("The Recap came back empty.")
+        return text, sensitive
 
     def ensure_conversation(self) -> int:
         if self.conversation_id is None:
@@ -104,14 +160,40 @@ class Companion:
     def _now_block(self) -> str:
         if self.clock is None:
             return ""
-        return f"\n\n## Now\nLocal time: {self.clock():%A %Y-%m-%d %H:%M}"
+        now = self.clock()
+        lines = [f"Local time: {now:%A %Y-%m-%d %H:%M}"]
+        times = self.store.latest_message_times(2)  # the newest is the Message being answered
+        if len(times) == 2:
+            lines.append(f"Last Message before this one: {format_age(now - times[1])}")
+        return "\n\n## Now\n" + "\n".join(lines)
+
+    def _recap_block(self) -> str:
+        now = self._now()
+        recent = [r for r in self.recaps() if now - r.ended_at <= timedelta(days=self.recap_max_days)]
+        if not recent:
+            return ""
+        lines = []
+        for position, recap in enumerate(recent):
+            age = now - recap.ended_at
+            labels = []
+            if position == 0:
+                labels.append("the Conversation just before this one")
+            if age < timedelta(hours=self.recap_fresh_hours):
+                labels.append("fresh")
+            if recap.sensitive:
+                labels.append("sensitive: never bring up first")
+            note = f" ({'; '.join(labels)})" if labels else ""
+            lines.append(f"- {format_age(age)}{note}: {recap.text}")
+        return "\n\n## Recaps of earlier Conversations\n" + "\n".join(lines)
 
     def memories(self) -> list[Memory]:
         return self.store.list_memories()
 
     def send(self, text: str) -> str:
         """Save the user's Message at once, then ask the provider. Raises ProviderError."""
-        self.store.add_message(self.ensure_conversation(), "user", text)
+        self.store.add_message(self.ensure_conversation(), "user", text, self._now())
+        if self._recap_retry_at is None or self._now() >= self._recap_retry_at:
+            self.write_recaps()  # the reply waits for it; a failure only means a reply without it
         return self._reply()
 
     def retry(self) -> str:
@@ -122,13 +204,29 @@ class Companion:
 
     def _reply(self) -> str:
         history = [ChatMessage(m.role, m.content) for m in self.recent_messages()]
-        system = self.persona + self._memory_block(history[-1].content if history else "") + self._now_block()
+        system = (
+            self.persona + self._memory_block(history[-1].content if history else "")
+            + self._now_block() + self._recap_block()
+        )
         reply, proposal = split_observation(self.provider.complete(system, history))
         if not reply:
             raise ProviderError("Mochi's reply was empty.")
         self.last_proposal = self._save_observation(proposal)
-        self.store.add_message(self.ensure_conversation(), "assistant", reply)
+        self.store.add_message(self.ensure_conversation(), "assistant", reply, self._now())
         return reply
+
+
+def format_age(age: timedelta) -> str:
+    seconds = max(0, int(age.total_seconds()))
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        minutes = seconds // 60
+        return f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+    if seconds < 48 * 3600:
+        hours = seconds // 3600
+        return f"{hours} hour{'s' if hours != 1 else ''} ago"
+    return f"{age.days} days ago"
 
 
 def _clean_tags(tags: list[str]) -> list[str]:

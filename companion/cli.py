@@ -5,7 +5,7 @@ from companion.store import Memory, Store
 
 SHOWN_ON_LAUNCH = 10
 HELP = (
-    "Commands: /new  start a new Conversation, /retry  resend unanswered Message, /quit\n"
+    "Commands: /new  start a new Conversation, /recaps  list Recaps, /retry  resend unanswered Message, /quit\n"
     "Memories: /remember [#tag ...] text, /memories, /edit id text, /tag id [#tag ...], "
     "/forget id, /confirm id"
 )
@@ -25,6 +25,14 @@ def bubbles(speaker: str, text: str) -> list[str]:
 def format_memory(m: Memory) -> str:
     tags = "".join(f" #{t}" for t in m.tags)
     return f"[{m.id}] {m.kind}{tags}: {m.text}"
+
+
+def show_recaps(companion: Companion, print_fn) -> None:
+    recaps = companion.recaps()
+    for r in recaps:
+        print_fn(f"[{r.id}] {r.ended_at:%Y-%m-%d %H:%M} ({r.interface}){' [sensitive]' if r.sensitive else ''}: {r.text}")
+    if not recaps:
+        print_fn("No Recaps yet. One is written when a Conversation ends.")
 
 
 def split_tags(words: list[str]) -> tuple[list[str], str]:
@@ -107,6 +115,10 @@ def run(companion: Companion, input_fn=input, print_fn=print) -> None:
             elif line == "/new":
                 companion.new_conversation()
                 print_fn("Started a new Conversation.")
+                companion.write_recaps()
+                continue
+            elif line == "/recaps":
+                show_recaps(companion, print_fn)
                 continue
             elif line == "/retry":
                 reply = companion.retry()

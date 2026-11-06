@@ -23,3 +23,10 @@ def test_memory_limit_defaults_to_five_and_can_be_set():
 def test_invalid_memory_limit_is_rejected(bad):
     with pytest.raises(SystemExit):
         Config.load({"MOCHI_MEMORY_LIMIT": bad})
+
+
+def test_recap_fading_thresholds_default_and_can_be_set():
+    config = Config.load({})
+    assert (config.recap_max_days, config.recap_fresh_hours) == (3, 24)
+    config = Config.load({"MOCHI_RECAP_MAX_DAYS": "5", "MOCHI_RECAP_FRESH_HOURS": "12"})
+    assert (config.recap_max_days, config.recap_fresh_hours) == (5, 12)

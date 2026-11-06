@@ -123,3 +123,15 @@ def test_vietnamese_bubbles_fit_inside_the_balloon(ui):
     for label in ui.balloon.findChildren(QLabel):
         assert label.height() >= label.heightForWidth(label.width())
         assert label.y() + label.height() <= ui.balloon.height()
+
+
+def test_recaps_view_lists_a_recap_after_a_conversation_ends_and_deletes_it(ui):
+    ui.send_requested.emit("hi")
+    ui.new_conversation_requested.emit()
+    view = ui.main_window.recaps
+    assert view._list.count() == 1
+    assert not view._empty.isVisibleTo(view)
+
+    view.delete_requested.emit(view._recaps[0].id)
+    assert view._list.count() == 0
+    assert view._empty.isVisibleTo(view)

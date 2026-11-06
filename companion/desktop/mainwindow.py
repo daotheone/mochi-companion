@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
 )
 
 from companion.desktop import chatlog, theme
-from companion.store import Memory, StoredMessage
+from companion.store import Memory, Recap, StoredMessage
 
 
 def _split_tags(raw: str) -> list[str]:
@@ -299,8 +299,61 @@ class MemoriesView(QWidget):
             self.forget_requested.emit(m.id)
 
 
+class RecapsView(QWidget):
+    """Read-only list of Recaps, newest first. They fade on their own, so there is no editing."""
+
+    delete_requested = Signal(int)
+
+    def __init__(self):
+        super().__init__(objectName="page")
+        self._recaps: list[Recap] = []
+        self._list = QListWidget()
+        self._list.setWordWrap(True)
+        self._empty = QLabel(
+            "No Recaps yet.\nOne is written when a Conversation ends.",
+            objectName="hint", alignment=Qt.AlignmentFlag.AlignCenter,
+        )
+        self._delete = _button("Delete", "danger")
+        self._delete.setEnabled(False)
+        self._list.currentRowChanged.connect(lambda row: self._delete.setEnabled(0 <= row < len(self._recaps)))
+        self._delete.clicked.connect(self._on_delete)
+        header = _header("Recaps", "Short notes Mochi keeps about past Conversations. They fade after a few days.")
+        header.addWidget(self._delete)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setSpacing(12)
+        layout.addLayout(header)
+        layout.addWidget(self._list, 1)
+        layout.addWidget(self._empty, 1)
+        self.show_recaps([])
+
+    def show_recaps(self, recaps: list[Recap]) -> None:
+        keep = self._selected().id if self._selected() else None
+        self._recaps = recaps
+        self._list.blockSignals(True)
+        self._list.clear()
+        for r in recaps:
+            note = "  ·  sensitive" if r.sensitive else ""
+            self._list.addItem(QListWidgetItem(f"{r.ended_at:%a %d %b %Y, %H:%M}  ·  {r.interface}{note}\n{r.text}"))
+        row = next((i for i, r in enumerate(recaps) if r.id == keep), -1)
+        self._list.setCurrentRow(row)
+        self._list.blockSignals(False)
+        self._delete.setEnabled(row >= 0)
+        self._empty.setVisible(not recaps)
+        self._list.setVisible(bool(recaps))
+
+    def _selected(self) -> Recap | None:
+        row = self._list.currentRow()
+        return self._recaps[row] if 0 <= row < len(self._recaps) else None
+
+    def _on_delete(self) -> None:
+        r = self._selected()
+        if r and QMessageBox.question(self, "Delete", f"Delete this Recap?\n\n{r.text}") == QMessageBox.StandardButton.Yes:
+            self.delete_requested.emit(r.id)
+
+
 class MainWindow(QMainWindow):
-    """A sidebar of views. Tasks and Recaps are stand-ins until those features exist."""
+    """A sidebar of views. Tasks is a stand-in until that feature exists."""
 
     def __init__(self):
         super().__init__()
@@ -310,6 +363,7 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(theme.STYLE)
         self.conversation = ConversationView()
         self.memories = MemoriesView()
+        self.recaps = RecapsView()
         self.conversation.save_log_requested.connect(self._save_log)
 
         pages = QStackedWidget()
@@ -326,9 +380,7 @@ class MainWindow(QMainWindow):
             ("Tasks", ComingSoon(
                 "Tasks & focus", "Plan small steps, run a focus timer, and get a gentle check-in.", "#4"
             ), "Coming soon"),
-            ("Recaps", ComingSoon(
-                "Recaps", "Short notes of past Conversations, so Mochi remembers how things were left.", "#8"
-            ), "Coming soon"),
+            ("Recaps", self.recaps, None),
         ]
         for i, (caption, page, soon) in enumerate(entries):
             pages.addWidget(page)

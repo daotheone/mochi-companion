@@ -22,6 +22,7 @@ def make_worker(qapp, tmp_path, provider):
     worker.failed.connect(lambda m: events.append(("failed", m)))
     worker.memories_changed.connect(lambda ms: events.append(("memories", len(ms))))
     worker.conversation_changed.connect(lambda ms: events.append(("conversation", [m.content for m in ms])))
+    worker.recaps_changed.connect(lambda rs: events.append(("recaps", [r.text for r in rs])))
     worker.start()
     events.clear()
     return worker, events
@@ -65,3 +66,20 @@ def test_memory_editing_round_trip(qapp, tmp_path):
     worker.forget_memory(1)
     worker.forget_memory(1)  # already gone: no crash, just a refresh
     assert [e for e in events if e[0] == "memories"][-1] == ("memories", 0)
+
+
+def test_new_conversation_writes_a_recap_and_it_can_be_deleted(qapp, tmp_path):
+    worker, events = make_worker(qapp, tmp_path, FakeProvider(["hello", "Said hi. Nothing open."]))
+    worker.send("hi")
+    worker.new_conversation()
+    assert ("recaps", ["Said hi. Nothing open."]) in events
+    worker.delete_recap(worker.companion.recaps()[0].id)
+    assert events[-1] == ("recaps", [])
+
+
+def test_a_conversation_left_open_is_recapped_on_the_next_launch(qapp, tmp_path):
+    first, _ = make_worker(qapp, tmp_path, FakeProvider(["hello"]))
+    first.send("hi")
+    first.shutdown()
+    second, events = make_worker(qapp, tmp_path, FakeProvider(["Said hi."]))
+    assert second.companion.recaps()[0].text == "Said hi."

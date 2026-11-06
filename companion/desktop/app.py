@@ -63,6 +63,7 @@ class DesktopApp(QObject):
         m.conversation.new_requested.connect(self.new_conversation_requested)
         b.confirm_requested.connect(w.confirm_memory)
         b.forget_requested.connect(w.forget_memory)
+        m.recaps.delete_requested.connect(w.delete_recap)
         m.memories.add_requested.connect(w.add_memory)
         m.memories.edit_requested.connect(w.edit_memory)
         m.memories.tags_requested.connect(w.set_memory_tags)
@@ -74,6 +75,7 @@ class DesktopApp(QObject):
         w.failed.connect(self._on_failure)
         w.conversation_changed.connect(m.conversation.show_messages)
         w.memories_changed.connect(m.memories.show_memories)
+        w.recaps_changed.connect(m.recaps.show_recaps)
         # character interaction
         c.clicked.connect(self.toggle_chatbox)
         c.double_clicked.connect(self.open_main_window)

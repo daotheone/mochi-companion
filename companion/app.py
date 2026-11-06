@@ -26,5 +26,6 @@ def build_companion(interface: str, resume: bool) -> tuple[Companion, Store]:
     companion = Companion(
         store, provider, persona, config.history_limit, config.memory_limit,
         interface=interface, resume=resume, clock=datetime.now,
+        recap_max_days=config.recap_max_days, recap_fresh_hours=config.recap_fresh_hours,
     )
     return companion, store

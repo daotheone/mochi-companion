@@ -79,3 +79,8 @@ def test_observed_memory_is_announced_and_confirmable(tmp_path):
     assert "noticed" in out and "/confirm 1" in out and "/forget 1" in out
     assert "[1] observed #study: works better in small steps" in out
     assert "[1] stated #study: works better in small steps" in out
+
+
+def test_new_writes_a_recap_and_recaps_lists_it(tmp_path):
+    out = drive(tmp_path / "m.db", FakeProvider(["hello", "Said hi. Nothing open."]), ["hi", "/new", "/recaps", "/quit"])
+    assert "Said hi. Nothing open." in out

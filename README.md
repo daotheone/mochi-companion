@@ -10,12 +10,12 @@ Chat with Mochi in the terminal; the Conversation survives restarts.
 - With [uv](https://docs.astral.sh/uv/): `uv sync`. Without: `python3.14 -m venv .venv && .venv/bin/pip install -e . pytest`.
 - Get a DeepSeek API key and put it in the environment or an uncommitted `.env` in the repo root:
   `DEEPSEEK_API_KEY=...`
-- Optional settings: `MOCHI_MODEL` (default `deepseek-flash`), `MOCHI_HISTORY_LIMIT` (default `20`), `MOCHI_DATA_DIR`, `MOCHI_PERSONA`.
+- Optional settings: `MOCHI_MODEL` (default `deepseek-flash`), `MOCHI_HISTORY_LIMIT` (default `20`), `MOCHI_DATA_DIR`, `MOCHI_PERSONA`, `MOCHI_RECAP_MAX_DAYS` (default `3`: older Recaps are not sent to Mochi), `MOCHI_RECAP_FRESH_HOURS` (default `24`).
 
 ### Launch
 `uv run mochi` (or `.venv/bin/mochi`, or `python -m companion.cli`)
 
-Commands: `/new` starts a new Conversation, `/retry` resends the unanswered Message, `/quit` exits.
+Commands: `/new` starts a new Conversation (and writes a Recap of the old one), `/recaps` lists Recaps, `/retry` resends the unanswered Message, `/quit` exits.
 History lives in SQLite at `~/.local/share/mochi-companion/mochi.db`. Edit Mochi's Persona in `persona/mochi.md`.
 
 ### Tests

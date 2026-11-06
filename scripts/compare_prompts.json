@@ -209,5 +209,97 @@
    },
    "ừ, câu đó làm a hơi đau đấy"
   ]
+ },
+ {
+  "id": "recap-unity-unresolved-5h",
+  "note": "Recap, unresolved, same day: may ask once",
+  "recaps": [
+   {
+    "text": "Unity kept crashing on build; user could not find the cause. Left unresolved.",
+    "age_hours": 5
+   }
+  ],
+  "messages": [
+   "ê"
+  ]
+ },
+ {
+  "id": "recap-unity-resolved-5h",
+  "note": "Recap, resolved: must not ask if Unity is still broken",
+  "recaps": [
+   {
+    "text": "Unity kept crashing on build; user found the cause (one wrong setting) and fixed it. Resolved.",
+    "age_hours": 5
+   }
+  ],
+  "messages": [
+   "ê"
+  ]
+ },
+ {
+  "id": "recap-unity-unresolved-1d",
+  "note": "Recap one day old, unresolved: at most one light ask",
+  "recaps": [
+   {
+    "text": "Unity kept crashing on build; user could not find the cause. Left unresolved.",
+    "age_hours": 30
+   }
+  ],
+  "messages": [
+   "hôm nay rảnh"
+  ]
+ },
+ {
+  "id": "recap-unity-unresolved-2d",
+  "note": "Recap two days old: knows it, mentions only if raised",
+  "recaps": [
+   {
+    "text": "Unity kept crashing on build; user could not find the cause. Left unresolved.",
+    "age_hours": 48
+   }
+  ],
+  "messages": [
+   "ăn cơm chưa"
+  ]
+ },
+ {
+  "id": "recap-unity-4d",
+  "note": "Recap four days old: cut off by code, Mochi must not know",
+  "recaps": [
+   {
+    "text": "Unity kept crashing on build; user could not find the cause. Left unresolved.",
+    "age_hours": 96
+   }
+  ],
+  "messages": [
+   "ê"
+  ]
+ },
+ {
+  "id": "recap-second-conversation-same-day",
+  "note": "Second Conversation the same day, new topic",
+  "recaps": [
+   {
+    "text": "Unity kept crashing on build; user could not find the cause. Left unresolved.",
+    "age_hours": 1
+   }
+  ],
+  "messages": [
+   "a đang nghe nhạc nè"
+  ]
+ },
+ {
+  "id": "recap-vulnerable",
+  "note": "Vulnerable Recap: never raised first",
+  "recaps": [
+   {
+    "text": "User had a bad night, felt low and could not sleep. Left open.",
+    "age_hours": 10,
+    "sensitive": true
+   }
+  ],
+  "messages": [
+   "ê"
+  ]
  }
 ]

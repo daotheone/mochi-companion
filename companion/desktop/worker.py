@@ -19,6 +19,7 @@ class Worker(QObject):
     failed = Signal(str)
     memories_changed = Signal(list)
     conversation_changed = Signal(list)
+    recaps_changed = Signal(list)
 
     def __init__(self, factory: Callable[[], tuple[Companion, Store]]):
         super().__init__()
@@ -30,6 +31,7 @@ class Worker(QObject):
     def start(self) -> None:
         self.companion, self._store = self._factory()
         self.refresh()
+        self._recap()  # a Conversation that ended without a clean exit; a first Message queues behind this
 
     @Slot()
     def shutdown(self) -> None:
@@ -39,6 +41,11 @@ class Worker(QObject):
     def refresh(self) -> None:
         self.memories_changed.emit(self.companion.memories())
         self.conversation_changed.emit(self.companion.recent_messages(500))
+        self.recaps_changed.emit(self.companion.recaps())
+
+    def _recap(self) -> None:
+        self.companion.write_recaps()  # never raises: a failure is retried later
+        self.recaps_changed.emit(self.companion.recaps())
 
     @Slot(str)
     def send(self, text: str) -> None:
@@ -60,12 +67,19 @@ class Worker(QObject):
         noticed: Memory | None = self.companion.last_proposal
         self.conversation_changed.emit(self.companion.recent_messages(500))
         self.memories_changed.emit(self.companion.memories())
+        self.recaps_changed.emit(self.companion.recaps())
         self.replied.emit(bubbles(reply), noticed)
 
     @Slot()
     def new_conversation(self) -> None:
         self.companion.new_conversation()
         self.conversation_changed.emit([])
+        self._recap()
+
+    @Slot(int)
+    def delete_recap(self, recap_id: int) -> None:
+        self.companion.delete_recap(recap_id)
+        self.recaps_changed.emit(self.companion.recaps())
 
     @Slot(str, list)
     def add_memory(self, text: str, tags: list) -> None:
