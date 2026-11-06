@@ -123,6 +123,7 @@ class DesktopApp(QObject):
             if noticed:
                 self.main_window.conversation.show_noticed(noticed)
         else:
+            self._expression_hold.stop()  # the Speech Balloon's fade ends this one
             self.balloon.show_reply(bubbles, noticed)
 
     def _on_failure(self, message: str) -> None:
@@ -196,7 +197,8 @@ class DesktopApp(QObject):
     def hide_character(self) -> None:
         self._character_wanted = False
         self._sync_character()
-        self._calm()
+        if not self.main_window.present:  # the Portrait's Expression is still on screen
+            self._calm()
 
     def show_character(self) -> None:
         self._character_wanted = True
@@ -210,8 +212,8 @@ class DesktopApp(QObject):
                 self.place_character()
                 self.character.show()
             return
-        if present and not self._expression_hold.isActive():
-            self._expression_hold.start()  # the Speech Balloon was going to end any Expression still showing
+        if present and self.face.expression != NEUTRAL and not self._expression_hold.isActive():
+            self._expression_hold.start()  # the Speech Balloon was going to end this Expression
         self.chatbox.close()
         self.balloon.hide()
         self.character.hide()

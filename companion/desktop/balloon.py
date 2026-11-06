@@ -78,7 +78,8 @@ class SpeechBalloon(QWidget):
         self._pending = list(bubbles)
         self._noticed = noticed
         self._reveal_next()
-        self._reveal.start()
+        if self._pending:
+            self._reveal.start()
 
     def show_error(self, message: str) -> None:
         self._begin()
@@ -180,7 +181,10 @@ class SpeechBalloon(QWidget):
         self._fade_anim.start()
 
     def hideEvent(self, event) -> None:
-        self._fade_timer.stop()  # a hidden balloon has nothing to fade, and fading ends the Expression
+        # Hidden means done: a late Bubble would show it again, and fading would end the Expression.
+        self._reveal.stop()
+        self._pending = []
+        self._fade_timer.stop()
         super().hideEvent(event)
 
     def enterEvent(self, event) -> None:

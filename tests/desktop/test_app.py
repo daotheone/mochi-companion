@@ -4,7 +4,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QEvent, QPoint, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton
 
@@ -33,9 +33,15 @@ def ui(qapp, tmp_path, monkeypatch):
     app.provider = provider
     app.show_character()
     yield app
-    for window in (app.character, app.chatbox, app.balloon, app.main_window):
+    windows = (app.character, app.chatbox, app.balloon, app.main_window)
+    for window in windows:
         window.close()
     worker.shutdown()
+    # Destroy the Qt side now: left to the garbage collector, a window can die mid-paint and crash the run.
+    for qt_object in (*windows, app.face, app):
+        qt_object.deleteLater()
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    QApplication.processEvents()
 
 
 def click(window, pos=QPoint(64, 100)):
@@ -381,3 +387,45 @@ def test_layout_holds_at_the_minimum_window_size(ui):
     assert view.rect().contains(bottom_right)
     assert view._input.x() > view.portrait.x()
     assert view._input.height() > 0 and view._scroll.height() > 60
+
+
+def test_a_reply_still_revealing_does_not_bring_the_balloon_back_over_the_main_window(ui):
+    ui.balloon._reveal.setInterval(10)
+    ui.provider.replies = ["one\ntwo\nthree"]
+    ui.chatbox.submitted.emit("hi")
+    open_main(ui)
+    QTest.qWait(60)
+    assert not ui.balloon.isVisible()
+
+
+def test_a_one_bubble_reply_notices_only_once(ui):
+    from PySide6.QtWidgets import QLabel
+
+    reply_with(ui, NOTICING)
+    QTest.qWait(20)
+    assert len([l for l in ui.balloon.findChildren(QLabel) if l.objectName() == "noticed"]) == 1
+
+
+def test_a_hold_left_from_the_main_window_does_not_end_a_chat_box_expression(ui):
+    open_main(ui)
+    send_from_main(ui, "[feel: smirk]\nhi")
+    ui.main_window.close()
+    QTest.qWait(10)
+    ui._expression_hold.setInterval(30)
+    ui._expression_hold.start()
+    click(ui.character)
+    reply_with(ui, "[feel: angry]\ncút")
+    QTest.qWait(60)
+    assert ui.face.expression == "angry"
+
+
+def test_toggling_with_the_main_window_open_leaves_the_portrait_expression(ui):
+    open_main(ui)
+    send_from_main(ui, "[feel: smirk]\nhi")
+    ui.toggle_visibility()
+    assert ui.face.expression == "smirk"
+
+
+def test_opening_the_main_window_on_a_neutral_face_starts_no_hold(ui):
+    open_main(ui)
+    assert not ui._expression_hold.isActive()
