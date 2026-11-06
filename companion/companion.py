@@ -1,4 +1,6 @@
 import re
+import sys
+import time
 from datetime import datetime, timedelta
 from typing import Callable
 
@@ -208,7 +210,13 @@ class Companion:
             self.persona + self._memory_block(history[-1].content if history else "")
             + self._now_block() + self._recap_block()
         )
-        reply, proposal = split_observation(self.provider.complete(system, history))
+        started = time.monotonic()
+        raw = self.provider.complete(system, history)
+        print(
+            f"[timing] model call {time.monotonic() - started:.1f}s, prompt ~{len(system) + sum(len(m.content) for m in history)} chars",
+            file=sys.stderr,
+        )
+        reply, proposal = split_observation(strip_script_leak(raw))
         if not reply:
             raise ProviderError("Mochi's reply was empty.")
         self.last_proposal = self._save_observation(proposal)
@@ -236,6 +244,15 @@ def _clean_tags(tags: list[str]) -> list[str]:
 
 OBSERVE_MARKER = re.compile(r"\[observe:([^\]]*)\]")
 OBSERVE_BODY = re.compile(r"\s*tags=([^|]*)\|\s*(.+?)\s*$")
+
+
+SCRIPT_LEAK = re.compile(r"^[ \t]*user[ \t]*:", re.IGNORECASE | re.MULTILINE)
+
+
+def strip_script_leak(reply: str) -> str:
+    """Cut a reply at the first `User:` line: the model has started writing the user's side of the script."""
+    match = SCRIPT_LEAK.search(reply)
+    return reply[: match.start()].strip() if match else reply
 
 
 def split_observation(reply: str) -> tuple[str, tuple[list[str], str] | None]:

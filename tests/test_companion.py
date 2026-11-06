@@ -294,3 +294,9 @@ def test_existing_database_without_interface_column_is_migrated(tmp_path):
     old.close()
     assert Store(path).latest_conversation("terminal") == 1
     assert Store(path).latest_conversation("character") is None
+
+
+def test_reply_is_cut_at_a_leaked_user_line(db):
+    c = launch(db, FakeProvider(["?\nUser: vừa làm xong cdd\ngiờ tới UI"]))
+    assert c.send("helu") == "?"
+    assert [m.content for m in c.recent_messages()] == ["helu", "?"]
