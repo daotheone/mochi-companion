@@ -18,7 +18,7 @@ def make_worker(qapp, tmp_path, provider):
     worker = Worker(factory)
     events: list[tuple] = []
     worker.state_changed.connect(lambda s: events.append(("state", s)))
-    worker.replied.connect(lambda lines, noticed: events.append(("reply", lines, noticed)))
+    worker.replied.connect(lambda lines, noticed, expression: events.append(("reply", lines, noticed, expression)))
     worker.failed.connect(lambda m: events.append(("failed", m)))
     worker.memories_changed.connect(lambda ms: events.append(("memories", len(ms))))
     worker.conversation_changed.connect(lambda ms: events.append(("conversation", [m.content for m in ms])))
@@ -32,8 +32,14 @@ def test_send_goes_thinking_then_replies_in_bubbles(qapp, tmp_path):
     worker, events = make_worker(qapp, tmp_path, FakeProvider(["one\ntwo"]))
     worker.send("hi")
     assert events[0] == ("state", "thinking")
-    assert ("reply", ["one", "two"], None) in events
+    assert ("reply", ["one", "two"], None, "neutral") in events
     assert ("conversation", ["hi", "one\ntwo"]) in events
+
+
+def test_reply_carries_the_expression(qapp, tmp_path):
+    worker, events = make_worker(qapp, tmp_path, FakeProvider(["[feel: smirk]\none"]))
+    worker.send("hi")
+    assert ("reply", ["one"], None, "smirk") in events
 
 
 def test_failure_reports_message_and_retry_recovers(qapp, tmp_path):
@@ -45,7 +51,7 @@ def test_failure_reports_message_and_retry_recovers(qapp, tmp_path):
     assert events[-1][0] != "reply"
     provider.fail_with = None
     worker.retry()
-    assert ("reply", ["back"], None) in events
+    assert ("reply", ["back"], None, "neutral") in events
 
 
 def test_observed_memory_is_passed_with_the_reply_and_can_be_confirmed(qapp, tmp_path):

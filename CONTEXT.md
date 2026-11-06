@@ -20,6 +20,10 @@ _Avoid_: system prompt, prompt, profile
 Mochi's on-screen presence as an animated desktop figure.
 _Avoid_: avatar, mascot, sprite (sprites are only its art assets)
 
+**Expression**:
+The face Mochi shows for one reply, on the Character or the Portrait, chosen by Mochi along with that reply. It is a reaction to the moment, not a lasting mood, and neutral is one of them.
+_Avoid_: emotion, mood, feeling, sprite
+
 **Message**:
 A single turn from the user or from Mochi inside a Conversation. The raw history is made of Messages, not Memories.
 _Avoid_: log entry, chat line
@@ -67,6 +71,10 @@ _Avoid_: chat bubble, tooltip
 **Main Window**:
 The full UI, opened by double-clicking the Character, that shows the Conversation history.
 _Avoid_: chat panel, dashboard, full UI
+
+**Portrait**:
+Mochi's face in a corner of the Main Window's Conversation view. It takes the Character's place while the Main Window is open, so Mochi is not on screen twice.
+_Avoid_: icon, avatar
 
 **Interface**:
 A way of talking to Mochi. The Character is the real app; the terminal exists for testing. Each keeps its own Conversations, and all share the same Memories.

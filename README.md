@@ -33,6 +33,6 @@ Mochi as a floating, transparent figure on the desktop (PySide6). It shares Memo
 - Click Mochi for the Chat Box (Esc or click again to close); double-click for the Main Window (Conversation, Memories). Right-click: Hide, Quit.
 - Running `mochi-desktop` again toggles visibility, so bind it to a GNOME shortcut or a `.desktop` launcher.
 - Position and size live in `~/.config/mochi-companion/desktop.json` (`size`, default 128).
-- Local art: put a sheet and a `frames.json` in `~/.config/mochi-companion/sprites/` and it replaces the placeholder (cells are `[column, row]` on the sheet). Use this for art whose licence forbids redistribution, e.g. the Rosa portraits (not committed).
+- Local art: put a sheet and a `frames.json` in `~/.config/mochi-companion/sprites/` and it replaces the bundled art (cells are `[column, row]` on the sheet). The map must define all 8 Expressions, or it is ignored with a warning.
 - Speech Balloon skin: `balloon.json` in the same folder points at a nine-slice frame image (`{"image", "slice", "scale", "text_color"}`; outside-the-border pixels become transparent). Without it the balloon is plain. The GB Studio UI pack (`frames/LIGHT BG/light frame 02.png`, slice 8, scale 2) is used locally and not committed, since it ships without a licence.
-- Art: `companion/desktop/sprites/frames.json` maps each state to a row of the spritesheet. Swap in final art by editing the map; `scripts/make_placeholder_sprites.py` regenerates the placeholder.
+- Art: `companion/desktop/sprites/frames.json` maps each Expression to cells of the bundled Rosa sheet. The sheet has its own licence, not this repo's: see `companion/desktop/sprites/ART-LICENSE.md`.

@@ -3,7 +3,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-STATES = ("idle", "thinking")
+from companion.companion import EXPRESSIONS
+
 BUNDLED = Path(__file__).parent / "sprites" / "frames.json"
 
 
@@ -12,19 +13,19 @@ class SpriteError(Exception):
 
 
 @dataclass(frozen=True)
-class StateFrames:
+class ExpressionFrames:
     cells: tuple[tuple[int, int], ...]  # (column, row) of each frame on the sheet
     fps: int
 
     @classmethod
-    def parse(cls, spec: dict) -> "StateFrames":
+    def parse(cls, spec: dict) -> "ExpressionFrames":
         """Either {"row", "frames", "fps"} for an animation strip, or {"cells": [[col, row], ...], "fps"}."""
         if "cells" in spec:
             cells = tuple((int(c), int(r)) for c, r in spec["cells"])
         else:
             cells = tuple((i, int(spec["row"])) for i in range(int(spec["frames"])))
         if not cells:
-            raise ValueError("a state needs at least one frame")
+            raise ValueError("an Expression needs at least one frame")
         return cls(cells, int(spec["fps"]))
 
 
@@ -32,11 +33,11 @@ class StateFrames:
 class FrameMap:
     sheet: Path
     frame_size: tuple[int, int]
-    states: dict[str, StateFrames]
+    expressions: dict[str, ExpressionFrames]
     faces: str = "right"  # which way the art looks; it is mirrored when that points off-screen
 
-    def state(self, name: str) -> StateFrames:
-        return self.states[name]
+    def expression(self, name: str) -> ExpressionFrames:
+        return self.expressions[name]
 
     @classmethod
     def load(cls, path: Path = BUNDLED) -> "FrameMap":
@@ -44,17 +45,17 @@ class FrameMap:
         try:
             data = json.loads(path.read_text())
             width, height = data["frame_size"]
-            states = {name: StateFrames.parse(spec) for name, spec in data["states"].items()}
+            expressions = {name: ExpressionFrames.parse(spec) for name, spec in data["expressions"].items()}
             sheet = path.parent / data["sheet"]
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:
             raise SpriteError(f"Cannot read sprite frame-map {path}: {e}") from e
-        for name in STATES:
-            if name not in states:
-                raise SpriteError(f"Sprite frame-map {path} has no '{name}' state.")
+        for name in EXPRESSIONS:
+            if name not in expressions:
+                raise SpriteError(f"Sprite frame-map {path} has no '{name}' Expression.")
         faces = data.get("faces", "right")
         if faces not in ("left", "right"):
             raise SpriteError(f"Sprite frame-map {path}: 'faces' must be 'left' or 'right'.")
-        return cls(sheet, (width, height), states, faces)
+        return cls(sheet, (width, height), expressions, faces)
 
 
 def user_map_path() -> Path:
@@ -65,14 +66,14 @@ def user_map_path() -> Path:
 
 
 def load_frame_map() -> FrameMap:
-    """The local art if present and valid, else the bundled placeholder."""
+    """The local art if present and valid, else the bundled art."""
     local = user_map_path()
     if local.is_file():
         try:
             fm = FrameMap.load(local)
             if fm.sheet.is_file():
                 return fm
-            print(f"[warning] sprite sheet {fm.sheet} not found; using the placeholder.", file=sys.stderr)
+            print(f"[warning] sprite sheet {fm.sheet} not found; using the bundled art.", file=sys.stderr)
         except SpriteError as e:
-            print(f"[warning] {e}; using the placeholder.", file=sys.stderr)
+            print(f"[warning] {e}; using the bundled art.", file=sys.stderr)
     return FrameMap.load()

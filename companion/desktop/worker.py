@@ -15,7 +15,7 @@ class Worker(QObject):
     """
 
     state_changed = Signal(str)  # "thinking" | "idle"
-    replied = Signal(list, object)  # Bubbles, Memory | None (what Mochi noticed)
+    replied = Signal(list, object, str)  # Bubbles, Memory | None (what Mochi noticed), Expression
     failed = Signal(str)
     memories_changed = Signal(list)
     conversation_changed = Signal(list)
@@ -68,7 +68,7 @@ class Worker(QObject):
         self.conversation_changed.emit(self.companion.recent_messages(500))
         self.memories_changed.emit(self.companion.memories())
         self.recaps_changed.emit(self.companion.recaps())
-        self.replied.emit(bubbles(reply), noticed)
+        self.replied.emit(bubbles(reply), noticed, self.companion.last_expression)
 
     @Slot()
     def new_conversation(self) -> None:

@@ -42,6 +42,7 @@ class StoredMessage:
     role: str
     content: str
     at: datetime  # local time
+    expression: str | None = None  # None on a user's Message and on replies older than Expressions
 
 
 @dataclass(frozen=True)
@@ -91,6 +92,9 @@ class Store:
         if "recapped" not in columns:
             with self._db:
                 self._db.execute("ALTER TABLE conversations ADD COLUMN recapped INTEGER NOT NULL DEFAULT 0")
+        if "expression" not in {row[1] for row in self._db.execute("PRAGMA table_info(messages)")}:
+            with self._db:
+                self._db.execute("ALTER TABLE messages ADD COLUMN expression TEXT")
 
     def close(self) -> None:
         self._db.close()
@@ -105,20 +109,25 @@ class Store:
                 "INSERT INTO conversations (interface, created_at) VALUES (?, ?)", (interface, _stamp(at))
             ).lastrowid
 
-    def add_message(self, conversation_id: int, role: str, content: str, at: datetime | None = None) -> int:
+    def add_message(
+        self, conversation_id: int, role: str, content: str, at: datetime | None = None, expression: str | None = None
+    ) -> int:
         with self._db:
             return self._db.execute(
-                "INSERT INTO messages (conversation_id, role, content, created_at) VALUES (?, ?, ?, ?)",
-                (conversation_id, role, content, _stamp(at)),
+                "INSERT INTO messages (conversation_id, role, content, created_at, expression) VALUES (?, ?, ?, ?, ?)",
+                (conversation_id, role, content, _stamp(at), expression),
             ).lastrowid
 
     def recent_messages(self, conversation_id: int, limit: int) -> list[StoredMessage]:
         rows = self._db.execute(
-            "SELECT id, role, content, created_at FROM messages WHERE conversation_id = ? "
+            "SELECT id, role, content, created_at, expression FROM messages WHERE conversation_id = ? "
             "ORDER BY id DESC LIMIT ?",
             (conversation_id, limit),
         ).fetchall()
-        return [StoredMessage(i, role, content, datetime.fromisoformat(at)) for i, role, content, at in reversed(rows)]
+        return [
+            StoredMessage(i, role, content, datetime.fromisoformat(at), expression)
+            for i, role, content, at, expression in reversed(rows)
+        ]
 
     def latest_message_times(self, count: int) -> list[datetime]:
         """The send times of the newest Messages across every Conversation, newest first."""

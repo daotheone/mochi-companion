@@ -31,6 +31,7 @@ class SpeechBalloon(QWidget):
 
     finished = Signal()  # the last Bubble is on screen
     resized = Signal()
+    fading = Signal()
     retry_requested = Signal()
     confirm_requested = Signal(int)
     forget_requested = Signal(int)
@@ -175,7 +176,12 @@ class SpeechBalloon(QWidget):
             self._fade_timer.start()
 
     def _fade(self) -> None:
+        self.fading.emit()
         self._fade_anim.start()
+
+    def hideEvent(self, event) -> None:
+        self._fade_timer.stop()  # a hidden balloon has nothing to fade, and fading ends the Expression
+        super().hideEvent(event)
 
     def enterEvent(self, event) -> None:
         self._hovered = True

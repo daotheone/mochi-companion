@@ -9,6 +9,8 @@ from companion.provider import ChatMessage, Provider, ProviderError
 from companion.store import Memory, Recap, Store, StoredMessage
 
 
+EXPRESSIONS = ("neutral", "happy", "sad", "smirk", "blush", "angry", "surprised", "laugh")
+NEUTRAL = "neutral"
 MEMORY_BUDGET_CHARS = 1600  # about 400 tokens
 CORE_TAG = "core"
 RECAP_RETRY_AFTER = timedelta(minutes=10)
@@ -58,6 +60,7 @@ class Companion:
         # A Conversation is only created by the first Message, so there are no empty ones.
         self.conversation_id: int | None = store.latest_conversation(interface) if resume else None
         self.last_proposal: Memory | None = None
+        self.last_expression = NEUTRAL
 
     def recent_messages(self, limit: int | None = None) -> list[StoredMessage]:
         if self.conversation_id is None:
@@ -205,7 +208,7 @@ class Companion:
         return self._reply()
 
     def _reply(self) -> str:
-        history = [ChatMessage(m.role, m.content) for m in self.recent_messages()]
+        history = [ChatMessage(m.role, _with_marker(m)) for m in self.recent_messages()]
         system = (
             self.persona + self._memory_block(history[-1].content if history else "")
             + self._now_block() + self._recap_block()
@@ -216,11 +219,13 @@ class Companion:
             f"[timing] model call {time.monotonic() - started:.1f}s, prompt ~{len(system) + sum(len(m.content) for m in history)} chars",
             file=sys.stderr,
         )
-        reply, proposal = split_observation(strip_script_leak(raw))
+        text, expression = split_expression(strip_script_leak(raw))
+        reply, proposal = split_observation(text)
         if not reply:
             raise ProviderError("Mochi's reply was empty.")
         self.last_proposal = self._save_observation(proposal)
-        self.store.add_message(self.ensure_conversation(), "assistant", reply, self._now())
+        self.last_expression = expression
+        self.store.add_message(self.ensure_conversation(), "assistant", reply, self._now(), expression)
         return reply
 
 
@@ -246,6 +251,7 @@ OBSERVE_MARKER = re.compile(r"\[observe:([^\]]*)\]")
 OBSERVE_BODY = re.compile(r"\s*tags=([^|]*)\|\s*(.+?)\s*$")
 
 
+FEEL_MARKER = re.compile(r"\[feel:([^\]]*)\]", re.IGNORECASE)
 SCRIPT_LEAK = re.compile(r"^[ \t]*user[ \t]*:", re.IGNORECASE | re.MULTILINE)
 
 
@@ -253,6 +259,17 @@ def strip_script_leak(reply: str) -> str:
     """Cut a reply at the first `User:` line: the model has started writing the user's side of the script."""
     match = SCRIPT_LEAK.search(reply)
     return reply[: match.start()].strip() if match else reply
+
+
+def split_expression(reply: str) -> tuple[str, str]:
+    """Strip every `[feel: ...]` marker from a reply; return the first valid Expression, else neutral."""
+    named = (body.strip().casefold() for body in FEEL_MARKER.findall(reply))
+    return FEEL_MARKER.sub("", reply), next((e for e in named if e in EXPRESSIONS), NEUTRAL)
+
+
+def _with_marker(message: StoredMessage) -> str:
+    """A Message as the model should see it: its own replies keep their marker, or it stops writing one."""
+    return f"[feel: {message.expression}]\n{message.content}" if message.expression else message.content
 
 
 def split_observation(reply: str) -> tuple[str, tuple[list[str], str] | None]:

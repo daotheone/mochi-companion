@@ -7,10 +7,12 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QApplication
 
 from companion.app import build_companion
+from companion.companion import NEUTRAL
 from companion.desktop import placement
 from companion.desktop.balloon import SpeechBalloon
 from companion.desktop.chatbox import ChatBox
 from companion.desktop.character import CharacterWindow
+from companion.desktop.face import Face
 from companion.desktop.instance import InstanceServer, signal_running_instance
 from companion.desktop.mainwindow import MainWindow
 from companion.desktop.settings import DesktopSettings
@@ -43,7 +45,8 @@ class DesktopApp(QObject):
         super().__init__()
         self.settings = settings
         self.worker = worker
-        self.character = CharacterWindow(load_frame_map(), settings.size)
+        self.face = Face(load_frame_map())
+        self.character = CharacterWindow(self.face, settings.size)
         self.chatbox = ChatBox(settings.size)
         self.balloon = SpeechBalloon()
         self.main_window = MainWindow()
@@ -85,6 +88,7 @@ class DesktopApp(QObject):
         c.quit_requested.connect(QApplication.quit)
         self.chatbox.closed.connect(lambda: b.set_pinned(False))
         b.resized.connect(self._place_balloon)
+        b.fading.connect(lambda: self.face.set_expression(NEUTRAL))
 
     # --- state ---
     def _set_busy(self, busy: bool) -> None:
@@ -96,14 +100,14 @@ class DesktopApp(QObject):
         if state == "thinking":
             self._set_busy(True)
             self.balloon.hide()
-            self.character.set_state("thinking")
+            self.face.set_thinking(True)
         else:
             self._set_busy(False)
-            self.character.set_state("idle")
+            self.face.set_thinking(False)
 
-    def _on_reply(self, bubbles: list, noticed) -> None:
+    def _on_reply(self, bubbles: list, noticed, expression: str) -> None:
         self._set_busy(False)
-        self.character.set_state("idle")
+        self.face.set_expression(expression)
         self.balloon.show_reply(bubbles, noticed)
 
     def _on_failure(self, message: str) -> None:
@@ -171,6 +175,7 @@ class DesktopApp(QObject):
         self.chatbox.close()
         self.balloon.hide()
         self.character.hide()
+        self.face.set_expression(NEUTRAL)
 
     def show_character(self) -> None:
         self.place_character()

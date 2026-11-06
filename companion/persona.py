@@ -1,4 +1,4 @@
-PERSONA_TOKEN_CAP = 3500
+PERSONA_TOKEN_CAP = 4000
 CHARS_PER_TOKEN = 3  # conservative: Vietnamese tokenizes worse than English
 
 

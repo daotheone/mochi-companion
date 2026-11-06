@@ -29,7 +29,7 @@ def test_conversation_survives_restart(db):
     second.send("again")
     assert provider.calls[0][1] == [
         ChatMessage("user", "hi"),
-        ChatMessage("assistant", "hello anh"),
+        ChatMessage("assistant", "[feel: neutral]\nhello anh"),
         ChatMessage("user", "again"),
     ]
     assert provider.calls[0][0] == "PERSONA"
@@ -51,7 +51,7 @@ def test_only_last_n_messages_are_sent_but_all_stay_stored(db):
     for i in range(3):
         c.send(f"m{i}")
     sent = [m.content for m in provider.calls[-1][1]]
-    assert sent == ["m1", "ok", "m2"]
+    assert sent == ["m1", "[feel: neutral]\nok", "m2"]
     assert len(c.recent_messages(100)) == 6
 
 
@@ -300,3 +300,90 @@ def test_reply_is_cut_at_a_leaked_user_line(db):
     c = launch(db, FakeProvider(["?\nUser: vừa làm xong cdd\ngiờ tới UI"]))
     assert c.send("helu") == "?"
     assert [m.content for m in c.recent_messages()] == ["helu", "?"]
+
+
+def test_reply_carries_the_expression_mochi_chose_without_showing_the_marker(db):
+    companion = launch(db, FakeProvider(["[feel: smirk]\nthì phơi đi?\nlười vcl"]))
+    assert companion.send("chưa phơi quần áo") == "thì phơi đi?\nlười vcl"
+    assert companion.last_expression == "smirk"
+    assert companion.recent_messages()[-1].content == "thì phơi đi?\nlười vcl"
+
+
+@pytest.mark.parametrize(
+    "raw, shown, expression",
+    [
+        ("no marker here", "no marker here", "neutral"),
+        ("[feel: sleepy]\nhi", "hi", "neutral"),
+        ("[feel: ]\nhi", "hi", "neutral"),
+        ("[feel: sleepy]\n[feel: angry]\nhi", "hi", "angry"),
+        ("[feel: laugh]\nhi\n[feel: sad]", "hi", "laugh"),
+        ("[Feel: Blush]\nhi", "hi", "blush"),
+        ("[feel: happy] hi", "hi", "happy"),
+    ],
+)
+def test_a_bad_marker_is_stripped_and_never_an_error(db, raw, shown, expression):
+    companion = launch(db, FakeProvider([raw]))
+    assert companion.send("hey") == shown
+    assert companion.last_expression == expression
+
+
+def test_marker_works_alongside_an_observation(db):
+    companion = launch(db, FakeProvider(["[feel: happy]\nô tốt\n[observe: tags=study | likes small steps]"]))
+    assert companion.send("xong r") == "ô tốt"
+    assert companion.last_expression == "happy"
+    assert companion.last_proposal.text == "likes small steps"
+
+
+def test_marker_survives_a_script_leak(db):
+    companion = launch(db, FakeProvider(["[feel: sad]\nừ\nUser: thế à"]))
+    assert companion.send("hey") == "ừ"
+    assert companion.last_expression == "sad"
+
+
+def test_history_sent_to_the_model_carries_markers_but_stored_text_does_not(db):
+    provider = FakeProvider(["[feel: smirk]\nthì phơi đi?", "no marker", "ok"])
+    companion = launch(db, provider)
+    companion.send("one")
+    companion.send("two")
+    companion.send("three")
+    assert [m.content for m in provider.calls[2][1]] == [
+        "one", "[feel: smirk]\nthì phơi đi?", "two", "[feel: neutral]\nno marker", "three",
+    ]
+    assert [m.content for m in companion.recent_messages() if m.role == "assistant"] == ["thì phơi đi?", "no marker", "ok"]
+
+
+def test_expression_survives_a_restart(db):
+    first = launch(db, FakeProvider(["[feel: angry]\ncút"]))
+    first.send("hi")
+    first.store.close()
+    provider = FakeProvider(["ok"])
+    launch(db, provider).send("again")
+    assert provider.calls[0][1][1] == ChatMessage("assistant", "[feel: angry]\ncút")
+
+
+def test_messages_from_before_expressions_replay_without_a_marker(db):
+    import sqlite3
+
+    raw = sqlite3.connect(db)
+    raw.executescript(
+        "CREATE TABLE conversations (id INTEGER PRIMARY KEY AUTOINCREMENT, interface TEXT NOT NULL DEFAULT 'terminal',"
+        " created_at TEXT NOT NULL DEFAULT '2026-01-01T00:00:00.000');"
+        "CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id INTEGER NOT NULL,"
+        " role TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT '2026-01-01T00:00:00.000');"
+        "INSERT INTO conversations (interface) VALUES ('terminal');"
+        "INSERT INTO messages (conversation_id, role, content) VALUES (1, 'user', 'hi'), (1, 'assistant', 'old reply');"
+    )
+    raw.commit()
+    raw.close()
+    provider = FakeProvider(["ok"])
+    launch(db, provider).send("again")
+    assert provider.calls[0][1][1] == ChatMessage("assistant", "old reply")
+
+
+def test_recap_transcript_has_no_markers(db):
+    provider = FakeProvider(["[feel: smirk]\nhi", "a recap"])
+    companion = launch(db, provider)
+    companion.send("hello")
+    companion.new_conversation()
+    companion.write_recaps()
+    assert "feel" not in provider.calls[1][1][0].content

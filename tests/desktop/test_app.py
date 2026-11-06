@@ -66,23 +66,92 @@ def test_double_click_closes_chat_box_and_opens_main_window(ui):
     assert ui.main_window.isVisible()
 
 
-def test_reply_stacks_bubbles_in_the_balloon_and_returns_to_idle(ui):
+def test_reply_stacks_bubbles_in_the_balloon(ui):
     ui.chatbox.submitted.emit("hi")
     QTest.qWait(50)
     assert ui.balloon.isVisible()
     assert ui.balloon._stack.count() == 2
-    assert ui.character.state == "idle"
+    assert ui.face.expression == "neutral" and not ui.face.thinking
 
 
-def test_provider_failure_shows_retry_and_returns_to_idle(ui):
+def test_provider_failure_shows_retry_and_a_neutral_face(ui):
     ui.provider.fail_with = "network down"
     ui.chatbox.submitted.emit("hi")
     assert ui.balloon.isVisible()
-    assert ui.character.state == "idle"
+    assert ui.face.expression == "neutral" and not ui.face.thinking
     ui.provider.fail_with = None
     ui.balloon.retry_requested.emit()
     QTest.qWait(50)
     assert ui.balloon._stack.count() == 2
+
+
+def reply_with(ui, text):
+    ui.provider.replies = [text]
+    ui.chatbox.submitted.emit("hi")
+    QTest.qWait(20)
+    ui.balloon.leaveEvent(None)  # offscreen, the balloon opens under the cursor and counts as hovered
+
+
+def test_character_shows_the_expression_of_a_reply(ui):
+    reply_with(ui, "[feel: smirk]\nlười vcl")
+    assert ui.face.expression == "smirk"
+
+
+def test_a_new_expression_replaces_the_last(ui):
+    reply_with(ui, "[feel: smirk]\nlười vcl")
+    reply_with(ui, "[feel: laugh]\nhaha")
+    assert ui.face.expression == "laugh"
+
+
+def test_expression_returns_to_neutral_when_the_balloon_starts_fading(ui):
+    reply_with(ui, "[feel: angry]\ncút")
+    ui.balloon._fade()
+    assert ui.face.expression == "neutral"
+
+
+def test_expression_waits_for_the_fade_and_the_chat_box_holds_it_off(ui):
+    reply_with(ui, "[feel: angry]\ncút")
+    assert ui.balloon._fade_timer.isActive()
+    click(ui.character)
+    reply_with(ui, "[feel: angry]\ncút")
+    assert ui.face.expression == "angry"
+    assert not ui.balloon._fade_timer.isActive()
+
+
+def test_hover_rescue_does_not_bring_the_expression_back(ui):
+    reply_with(ui, "[feel: angry]\ncút")
+    ui.balloon._fade()
+    ui.balloon.enterEvent(None)
+    assert ui.face.expression == "neutral"
+
+
+def test_thinking_replaces_the_current_expression(ui):
+    reply_with(ui, "[feel: angry]\ncút")
+    thinking = []
+    ui.worker.state_changed.connect(lambda _: thinking.append(ui.face.thinking))
+    reply_with(ui, "[feel: happy]\nok")
+    assert thinking == [True]
+
+
+def test_a_fade_left_over_from_the_last_reply_does_not_stop_the_thinking_dots(ui):
+    reply_with(ui, "[feel: angry]\ncút")
+    ui.balloon._fade_timer.setInterval(1)
+    ui._on_worker_state("thinking")
+    QTest.qWait(20)
+    assert ui.face.thinking
+
+
+def test_error_after_an_expression_shows_neutral(ui):
+    reply_with(ui, "[feel: angry]\ncút")
+    ui.provider.fail_with = "network down"
+    ui.chatbox.submitted.emit("hi")
+    assert ui.face.expression == "neutral"
+
+
+def test_hiding_the_character_clears_the_expression(ui):
+    reply_with(ui, "[feel: angry]\ncút")
+    ui.hide_character()
+    assert ui.face.expression == "neutral"
 
 
 def test_hide_and_toggle_visibility(ui):
