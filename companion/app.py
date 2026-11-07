@@ -6,6 +6,7 @@ from companion.config import Config
 from companion.deepseek_provider import DeepSeekProvider
 from companion.persona import persona_warning
 from companion.store import Store
+from companion.tasks import load_lines
 
 
 def bubbles(text: str) -> list[str]:
@@ -27,5 +28,7 @@ def build_companion(interface: str, resume: bool) -> tuple[Companion, Store]:
         store, provider, persona, config.history_limit, config.memory_limit,
         interface=interface, resume=resume, clock=datetime.now,
         recap_max_days=config.recap_max_days, recap_fresh_hours=config.recap_fresh_hours,
+        focus_minutes=config.focus_minutes, snooze_minutes=config.snooze_minutes,
+        reminder_hour=config.reminder_hour, notice_lines=load_lines(config.notices_path),
     )
     return companion, store

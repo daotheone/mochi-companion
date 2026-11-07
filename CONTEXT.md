@@ -83,3 +83,27 @@ _Avoid_: client, frontend, instance
 **Recap**:
 A brief, dated summary of a finished Conversation, including whether anything was left unresolved. Unlike a Memory it fades with age and is never edited.
 _Avoid_: summary, history, digest
+
+**Task**:
+Something the user means to do. Tasks carry across Conversations and Interfaces. A Task is open, done or dropped, and dropped means the user decided not to do it.
+_Avoid_: todo, item, reminder
+
+**Why**:
+A short line on a Task saying why it exists, which is what Mochi knows about its origin in later Conversations.
+_Avoid_: context, reason, note
+
+**Focus Session**:
+A timed stretch of work on one Task, which ends as finished or skipped whatever happens to the Task itself. Always written in full.
+_Avoid_: session, study session, timer
+
+**Reminder**:
+Mochi telling the user that a Task's due time has arrived. It is not a Message.
+_Avoid_: alarm, notification, nudge
+
+**Check-in**:
+Mochi asking how a Focus Session went when it ends. It is not a Message.
+_Avoid_: follow-up, reminder
+
+**Snooze**:
+Putting off a Reminder or Check-in so it comes back later.
+_Avoid_: delay, postpone

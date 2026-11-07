@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -522,3 +523,117 @@ def test_long_text_wraps_to_the_list_at_any_width(ui, nav_index):
     QTest.qWait(30)
     assert_wraps_inside(view)
     assert view.visualItemRect(view.item(0)).height() > tall
+
+
+# --- Tasks, Reminders and Check-ins ---
+def make_due(ui, title="call mum"):
+    ui.worker.companion.add_task(title, due=datetime.now() - timedelta(minutes=5), has_time=True)
+    ui.worker.check_notices()
+    QTest.qWait(20)
+
+
+def balloon_buttons(ui):
+    return {b.text(): b for b in ui.balloon.findChildren(QPushButton)}
+
+
+def test_a_reminder_shows_in_the_balloon_without_fading_and_is_answered(ui):
+    make_due(ui)
+    assert ui.balloon.isVisible() and "call mum" in ui.balloon._stack.itemAt(0).widget().text()
+    assert ui.face.expression == "surprised"
+    assert not ui.balloon._fade_timer.isActive()
+    balloon_buttons(ui)["Got it"].click()
+    QTest.qWait(20)
+    assert not ui.balloon.isVisible() and ui.face.expression == "neutral"
+    assert ui.worker.companion.pending_notice() is None
+
+
+def test_a_reminder_waits_while_the_chat_box_is_open(ui):
+    ui.toggle_chatbox()
+    make_due(ui)
+    assert not ui.balloon.isVisible()
+    ui.chatbox.close()
+    QTest.qWait(20)
+    assert ui.balloon.isVisible()
+
+
+def test_a_reminder_waits_while_the_character_is_hidden_and_never_brings_it_back(ui):
+    ui.hide_character()
+    make_due(ui)
+    assert not ui.character.isVisible() and not ui.balloon.isVisible()
+    ui.show_character()
+    assert ui.balloon.isVisible()
+
+
+def test_a_reminder_goes_to_the_chat_view_while_the_main_window_is_open(ui):
+    open_main(ui)
+    make_due(ui)
+    assert not ui.balloon.isVisible()
+    notice_buttons_by(ui)["Snooze 10 min"].click()
+    QTest.qWait(20)
+    assert ui.worker.companion.pending_notice() is None
+    assert ui.worker.companion.tasks()[0].snooze_until is not None
+
+
+def test_a_reminder_moves_into_the_main_window_when_it_opens(ui):
+    make_due(ui)
+    open_main(ui)
+    assert not ui.balloon.isVisible() and "Got it" in notice_buttons_by(ui)
+
+
+def test_a_reminder_waits_for_a_reply_and_comes_back_after_it(ui):
+    ui.chatbox.submitted.emit("hi")
+    QTest.qWait(50)
+    make_due(ui)
+    assert "Got it" not in balloon_buttons(ui)  # the reply is still showing
+    ui.balloon.hide()
+    assert "Got it" in balloon_buttons(ui)
+
+
+def test_a_task_proposal_is_added_on_accept_and_not_before(ui):
+    ui.provider.replies = ["ok\n[task: due=2026-11-07T19:00 | gọi mẹ | mẹ dặn]"]
+    ui.chatbox.submitted.emit("hi")
+    QTest.qWait(50)
+    assert ui.worker.companion.tasks() == []
+    balloon_buttons(ui)["Add"].click()
+    QTest.qWait(20)
+    assert [t.title for t in ui.worker.companion.tasks()] == ["gọi mẹ"]
+    assert "Add" not in balloon_buttons(ui)
+
+
+def test_a_task_proposal_can_be_dismissed_independently_of_a_noticed_memory(ui):
+    open_main(ui)
+    send_from_main(ui, "ok\n[task: gọi mẹ]\n[observe: tags=a | b c]")
+    buttons = notice_buttons_by(ui)
+    assert {"Add", "Dismiss", "Confirm", "Forget"} <= set(buttons)
+    buttons["Dismiss"].click()
+    assert ui.worker.companion.tasks() == [] and "Confirm" in notice_buttons_by(ui)
+
+
+def test_the_tasks_view_adds_edits_completes_and_runs_a_focus_session(ui):
+    tasks = ui.main_window.tasks
+    tasks._title.setText("write essay")
+    tasks._why.setText("deadline")
+    tasks._save.click()
+    QTest.qWait(20)
+    task = ui.worker.companion.tasks()[0]
+    assert (task.title, task.why, task.due) == ("write essay", "deadline", None)
+    tasks._list.setCurrentRow(0)
+    tasks._focus.click()
+    QTest.qWait(20)
+    assert ui.worker.companion.running_focus().task_id == task.id
+    assert "Focus: write essay" in ui.main_window.conversation._strip.text()
+    tasks._focus.click()  # now "Stop focus"
+    QTest.qWait(20)
+    assert "Skip" in notice_buttons_by_open(ui)
+    tasks._done.click()
+    QTest.qWait(20)
+    assert ui.worker.companion.tasks()[0].status == "done"
+
+
+def notice_buttons_by(ui):
+    return {b.text(): b for b in ui.main_window.conversation.findChildren(QPushButton)}
+
+
+def notice_buttons_by_open(ui):
+    open_main(ui)
+    return notice_buttons_by(ui)

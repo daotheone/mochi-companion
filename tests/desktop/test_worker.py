@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 import pytest
 
 pytest.importorskip("PySide6")
@@ -18,7 +20,9 @@ def make_worker(qapp, tmp_path, provider):
     worker = Worker(factory)
     events: list[tuple] = []
     worker.state_changed.connect(lambda s: events.append(("state", s)))
-    worker.replied.connect(lambda lines, noticed, expression: events.append(("reply", lines, noticed, expression)))
+    worker.replied.connect(lambda lines, noticed, expression, task: events.append(("reply", lines, noticed, expression)))
+    worker.task_proposals = []
+    worker.replied.connect(lambda *args: worker.task_proposals.append(args[3]))
     worker.failed.connect(lambda m: events.append(("failed", m)))
     worker.memories_changed.connect(lambda ms: events.append(("memories", len(ms))))
     worker.conversation_changed.connect(lambda ms: events.append(("conversation", [m.content for m in ms])))
@@ -89,3 +93,32 @@ def test_a_conversation_left_open_is_recapped_on_the_next_launch(qapp, tmp_path)
     first.shutdown()
     second, events = make_worker(qapp, tmp_path, FakeProvider(["Said hi."]))
     assert second.companion.recaps()[0].text == "Said hi."
+
+
+def test_a_task_proposal_travels_with_the_reply_and_is_saved_only_on_accept(qapp, tmp_path):
+    worker, events = make_worker(qapp, tmp_path, FakeProvider(["ok\n[task: due=2026-11-07T19:00 | gọi mẹ | mẹ dặn]"]))
+    tasks = []
+    worker.tasks_changed.connect(lambda ts, sessions: tasks.append([t.title for t in ts]))
+    worker.send("nhớ gọi mẹ")
+    proposal = worker.task_proposals[-1]
+    assert proposal.title == "gọi mẹ" and tasks[-1] == []
+    worker.accept_task(proposal)
+    assert tasks[-1] == ["gọi mẹ"]
+
+
+def test_check_ins_are_polled_and_answered(qapp, tmp_path):
+    worker, events = make_worker(qapp, tmp_path, FakeProvider())
+    notices = []
+    worker.notice_changed.connect(notices.append)
+    clock = [datetime(2026, 11, 7, 12)]
+    worker.companion.clock = lambda: clock[0]
+    worker.add_task("study", "", None, False)
+    worker.start_focus(worker.companion.tasks()[0].id)
+    worker.check_notices()
+    assert notices == []
+    clock[0] += timedelta(minutes=30)
+    worker.check_notices()
+    worker.check_notices()  # unchanged: reported once
+    assert [n.kind for n in notices] == ["checkin"]
+    worker.answer_notice(notices[-1], "done")
+    assert notices[-1] is None and worker.companion.tasks()[0].status == "done"

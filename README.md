@@ -1,13 +1,41 @@
 # mochi-companion
 Get me out of the loneliness. A desktop companion that help me do task management, check on me and give some other interactions. Personal project.
 
+## Install (quick start)
+
+Mochi needs Linux, Python 3.14 or newer (3.15 works) and a [DeepSeek](https://platform.deepseek.com/) API key.
+
+```bash
+# 1. Get the code
+git clone https://github.com/daotheone/mochi-companion.git
+cd mochi-companion
+
+# 2. Create a virtual environment and install, including the desktop Character
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e '.[desktop]'      # or: uv sync --extra desktop
+
+# 3. Add your API key (the .env file is not committed)
+echo 'DEEPSEEK_API_KEY=your-key-here' > .env
+
+# 4. Launch
+mochi-desktop                    # the desktop Character
+mochi                            # or chat in the terminal
+```
+
+Notes:
+- Run `source .venv/bin/activate` in each new shell, or call `.venv/bin/mochi-desktop` directly.
+- Python upgrades break a virtual environment (`ModuleNotFoundError: No module named 'companion'`). Delete `.venv` and repeat step 2.
+- Running `mochi-desktop` again toggles Mochi's visibility, so you can bind it to a GNOME shortcut.
+- Details for each interface are below.
+
 ## Phase 1: terminal chat
 
 Chat with Mochi in the terminal; the Conversation survives restarts.
 
 ### Setup
 - Linux, Python 3.14 (developed on GNOME/Wayland).
-- With [uv](https://docs.astral.sh/uv/): `uv sync`. Without: `python3.14 -m venv .venv && .venv/bin/pip install -e . pytest`.
+- With [uv](https://docs.astral.sh/uv/): `uv sync`. Without: `python3 -m venv .venv && .venv/bin/pip install -e . pytest`.
 - Get a DeepSeek API key and put it in the environment or an uncommitted `.env` in the repo root:
   `DEEPSEEK_API_KEY=...`
 - Optional settings: `MOCHI_MODEL` (default `deepseek-flash`), `MOCHI_HISTORY_LIMIT` (default `20`), `MOCHI_DATA_DIR`, `MOCHI_PERSONA`, `MOCHI_RECAP_MAX_DAYS` (default `3`: older Recaps are not sent to Mochi), `MOCHI_RECAP_FRESH_HOURS` (default `24`).
