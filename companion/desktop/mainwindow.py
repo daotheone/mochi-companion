@@ -4,7 +4,7 @@ from PySide6.QtCore import QDate, QEvent, QTime, QTimer, Qt, Signal
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (
     QAbstractItemView, QButtonGroup, QCheckBox, QDateEdit, QTimeEdit, QFrame, QHBoxLayout, QLabel, QLineEdit, QListView, QListWidget, QListWidgetItem, QMainWindow,
-    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
+    QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from companion.desktop import chatlog, theme
@@ -24,6 +24,7 @@ def _split_tags(raw: str) -> list[str]:
 def _button(text: str, name: str = "", tip: str = "") -> QPushButton:
     b = QPushButton(text, objectName=name)
     b.setCursor(Qt.CursorShape.PointingHandCursor)
+    b.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)  # never clip the label
     if tip:
         b.setToolTip(tip)
     return b
